@@ -10,8 +10,14 @@ async function fetchJSON(endpoint) {
 }
 
 // Search & Discovery
-export const searchAnime = (query, page = 1) =>
-  fetchJSON(`/search?query=${encodeURIComponent(query)}&page=${page}`);
+export const searchAnime = (query, page = 1, filters = {}) => {
+  const params = new URLSearchParams({ query, page });
+  if (filters.genre) params.set("genre", filters.genre);
+  if (filters.format) params.set("format", filters.format);
+  if (filters.status) params.set("status", filters.status);
+  if (filters.sort) params.set("sort", filters.sort);
+  return fetchJSON(`/search?${params.toString()}`);
+};
 
 export const getSuggestions = (query) =>
   fetchJSON(`/suggestions?query=${encodeURIComponent(query)}`);
@@ -41,6 +47,8 @@ export const getSpotlight = (page = 1, perPage = 10) =>
   fetchJSON(`/spotlight?page=${page}&per_page=${perPage}`);
 
 export const getSchedule = () => fetchJSON(`/schedule`);
+
+export const getWeeklySchedule = () => fetchJSON(`/schedule/week`);
 
 // Anime Details
 export const getAnimeInfo = (id) => fetchJSON(`/info/${id}`);

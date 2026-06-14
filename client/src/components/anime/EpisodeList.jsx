@@ -1,16 +1,26 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 export default function EpisodeList({
   providers,
   onPlayEpisode,
   currentEpisodeId,
+  initialProvider,
+  initialAudioType,
 }) {
-  const [currentProvider, setCurrentProvider] = useState(null);
-  const [audioType, setAudioType] = useState("sub");
+  const [currentProvider, setCurrentProvider] = useState(initialProvider || null);
+  const [audioType, setAudioType] = useState(initialAudioType || "sub");
+  const [currentPage, setCurrentPage] = useState(1);
+  const EPISODES_PER_PAGE = 50;
 
   const providerNames = providers ? Object.keys(providers) : [];
 
-  // Auto-select first provider with episodes
+  // Sync with props
+  useEffect(() => {
+    if (initialProvider) setCurrentProvider(initialProvider);
+    if (initialAudioType) setAudioType(initialAudioType);
+  }, [initialProvider, initialAudioType]);
+
+  // Auto-select first provider with episodes if none selected
   if (!currentProvider && providerNames.length > 0) {
     const defaultProv = providerNames.find(
       (name) => providers[name]?.episodes?.sub?.length > 0
@@ -44,6 +54,7 @@ export default function EpisodeList({
               key={name}
               onClick={() => {
                 setCurrentProvider(name);
+                setCurrentPage(1);
                 // Reset audio type if not available
                 const pd = providers[name];
                 if (audioType === "dub" && !pd?.episodes?.dub?.length && pd?.episodes?.sub?.length) {
@@ -71,7 +82,7 @@ export default function EpisodeList({
           <div className="flex bg-surface-base rounded-lg overflow-hidden border border-surface-border">
             {hasSub && (
               <button
-                onClick={() => setAudioType("sub")}
+                onClick={() => { setAudioType("sub"); setCurrentPage(1); }}
                 className={`px-4 py-2 text-sm font-medium transition-colors ${
                   audioType === "sub"
                     ? "bg-netflix-red text-white"
@@ -83,7 +94,7 @@ export default function EpisodeList({
             )}
             {hasDub && (
               <button
-                onClick={() => setAudioType("dub")}
+                onClick={() => { setAudioType("dub"); setCurrentPage(1); }}
                 className={`px-4 py-2 text-sm font-medium transition-colors ${
                   audioType === "dub"
                     ? "bg-netflix-red text-white"
@@ -97,63 +108,103 @@ export default function EpisodeList({
         )}
       </div>
 
-      {/* Episode grid */}
+      {/* Episode grid and pagination */}
       {episodes.length > 0 ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {episodes.map((ep) => (
-            <button
-              key={ep.id}
-              onClick={() => onPlayEpisode(ep)}
-              className={`flex items-center gap-4 p-4 rounded-lg border text-left transition-all group ${
-                currentEpisodeId === ep.id
-                  ? "border-netflix-red bg-netflix-red/10"
-                  : "border-surface-border bg-surface-base hover:border-text-muted hover:bg-surface-raised"
-              }`}
-            >
-              {/* Episode thumbnail */}
-              {ep.image && (
-                <img
-                  src={ep.image}
-                  alt={`Episode ${ep.number}`}
-                  className="w-24 h-14 rounded object-cover shrink-0"
-                  loading="lazy"
-                />
-              )}
-              <div className="min-w-0 flex-1">
-                <span
-                  className={`text-xs font-bold block mb-1 ${
-                    currentEpisodeId === ep.id
-                      ? "text-netflix-red"
-                      : "text-text-muted group-hover:text-netflix-red"
-                  }`}
-                >
-                  Episode {ep.number}
-                </span>
-                <span className="text-sm text-text-primary truncate block">
-                  {ep.title || "Watch Now"}
-                </span>
-                {ep.filler && (
-                  <span className="text-xs text-yellow-500 mt-1 block">FILLER</span>
+        <div className="space-y-4">
+          {(() => {
+            // Sort episodes to ensure they are numerically ordered
+            const sortedEps = [...episodes].sort((a, b) => a.number - b.number);
+            const totalPages = Math.ceil(sortedEps.length / EPISODES_PER_PAGE);
+            const startIndex = (currentPage - 1) * EPISODES_PER_PAGE;
+            const paginatedEps = sortedEps.slice(startIndex, startIndex + EPISODES_PER_PAGE);
+
+            return (
+              <>
+                {/* Pagination Tabs */}
+                {totalPages > 1 && (
+                  <div className="flex flex-wrap gap-2 mb-4">
+                    {Array.from({ length: totalPages }).map((_, i) => {
+                      const pageNum = i + 1;
+                      const startEp = i * EPISODES_PER_PAGE + 1;
+                      const endEp = Math.min((i + 1) * EPISODES_PER_PAGE, sortedEps.length);
+                      return (
+                        <button
+                          key={pageNum}
+                          onClick={() => setCurrentPage(pageNum)}
+                          className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-all ${
+                            currentPage === pageNum
+                              ? "border-netflix-red bg-netflix-red text-white"
+                              : "border-surface-border bg-surface-base text-text-secondary hover:border-text-muted hover:text-text-primary"
+                          }`}
+                        >
+                          {startEp}-{endEp}
+                        </button>
+                      );
+                    })}
+                  </div>
                 )}
-              </div>
-              {/* Play icon */}
-              <svg
-                className={`w-5 h-5 shrink-0 transition-colors ${
-                  currentEpisodeId === ep.id
-                    ? "text-netflix-red"
-                    : "text-text-muted group-hover:text-text-primary"
-                }`}
-                fill="currentColor"
-                viewBox="0 0 20 20"
-              >
-                <path
-                  fillRule="evenodd"
-                  d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z"
-                  clipRule="evenodd"
-                />
-              </svg>
-            </button>
-          ))}
+
+                {/* Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {paginatedEps.map((ep) => (
+                    <button
+                      key={ep.id}
+                      onClick={() => onPlayEpisode(ep)}
+                      className={`flex items-center gap-4 p-4 rounded-lg border text-left transition-all group ${
+                        currentEpisodeId === ep.id
+                          ? "border-netflix-red bg-netflix-red/10"
+                          : "border-surface-border bg-surface-base hover:border-text-muted hover:bg-surface-raised"
+                      }`}
+                    >
+
+                      {/* Episode thumbnail */}
+                      {ep.image && (
+                        <img
+                          src={ep.image}
+                          alt={`Episode ${ep.number}`}
+                          className="w-24 h-14 rounded object-cover shrink-0"
+                          loading="lazy"
+                        />
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <span
+                          className={`text-xs font-bold block mb-1 ${
+                            currentEpisodeId === ep.id
+                              ? "text-netflix-red"
+                              : "text-text-muted group-hover:text-netflix-red"
+                          }`}
+                        >
+                          Episode {ep.number}
+                        </span>
+                        <span className="text-sm text-text-primary truncate block">
+                          {ep.title || "Watch Now"}
+                        </span>
+                        {ep.filler && (
+                          <span className="text-xs text-yellow-500 mt-1 block">FILLER</span>
+                        )}
+                      </div>
+                      {/* Play icon */}
+                      <svg
+                        className={`w-5 h-5 shrink-0 transition-colors ${
+                          currentEpisodeId === ep.id
+                            ? "text-netflix-red"
+                            : "text-text-muted group-hover:text-text-primary"
+                        }`}
+                        fill="currentColor"
+                        viewBox="0 0 20 20"
+                      >
+                        <path
+                          fillRule="evenodd"
+                          d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z"
+                          clipRule="evenodd"
+                        />
+                      </svg>
+                    </button>
+                  ))}
+                </div>
+              </>
+            );
+          })()}
         </div>
       ) : (
         <div className="text-center py-8 text-text-muted">

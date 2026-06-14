@@ -1,242 +1,367 @@
 import { useRef, useEffect, useCallback, useState } from "react";
 import Hls from "hls.js";
 import SkipButton from "./SkipButton";
-import QualitySelector from "./QualitySelector";
+import PlayerControls from "./PlayerControls";
+import usePlayerState from "../../hooks/usePlayerState";
+import { Play } from "lucide-react";
 
 export default function VideoPlayer({
-  streams = [],
-  subtitles = [],
-  intro = null,
-  outro = null,
-  onTimeUpdate,
-  initialTime = 0,
+	streams = [],
+	subtitles = [],
+	intro = null,
+	outro = null,
+	onTimeUpdate,
+	initialTime = 0,
+	onNextEpisode,
+	onPrevEpisode,
+	hasPrev = false,
+	hasNext = false,
+	onEnded,
+	title = "",
+	isLoading = false,
 }) {
-  const videoRef = useRef(null);
-  const hlsRef = useRef(null);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [qualities, setQualities] = useState([]);
-  const [currentQuality, setCurrentQuality] = useState(-1);
-  const [isReady, setIsReady] = useState(false);
+	const videoRef = useRef(null);
+	const hlsRef = useRef(null);
+	const [qualities, setQualities] = useState([]);
+	const [isReady, setIsReady] = useState(false);
 
-  const destroyHls = useCallback(() => {
-    if (hlsRef.current) {
-      hlsRef.current.destroy();
-      hlsRef.current = null;
-    }
-  }, []);
+	const playerState = usePlayerState(videoRef, isLoading);
 
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video || !streams.length) return;
+	const {
+		isPlaying,
+		currentTime,
+		showControls,
+		settingsOpen,
+		autoNext,
+		autoSkipIntro,
+		autoSkipOutro,
+		currentQuality,
+		containerRef,
+		togglePlay,
+		seek,
+		resetControlsTimer,
+		setCurrentQuality,
+		setShowControls,
+		setSettingsOpen,
+	} = playerState;
 
-    destroyHls();
-    setIsReady(false);
-    setQualities([]);
+	const destroyHls = useCallback(() => {
+		if (hlsRef.current) {
+			hlsRef.current.destroy();
+			hlsRef.current = null;
+		}
+	}, []);
 
-    const hlsStreams = streams.filter(
-      (s) => s.type === "hls" || s.url?.includes(".m3u8")
-    );
+	// HLS setup (same proven logic, just removed native controls)
+	useEffect(() => {
+		const video = videoRef.current;
+		if (!video || !streams.length) return;
 
-    if (Hls.isSupported() && hlsStreams.length > 0) {
-      // Build master playlist for ABR
-      let masterM3u8 = "#EXTM3U\n";
-      hlsStreams.forEach((s) => {
-        let bandwidth = 5000000;
-        let res = "1920x1080";
-        if (s.quality === "720p") { bandwidth = 2500000; res = "1280x720"; }
-        if (s.quality === "480p") { bandwidth = 1500000; res = "854x480"; }
-        if (s.quality === "360p") { bandwidth = 800000; res = "640x360"; }
+		destroyHls();
+		setIsReady(false);
+		setQualities([]);
 
-        let pUrl = window.location.origin + "/proxy?url=" + encodeURIComponent(s.url);
-        if (s.referer) pUrl += "&referer=" + encodeURIComponent(s.referer);
+		const hlsStreams = streams.filter(
+			(s) => s.type === "hls" || s.url?.includes(".m3u8")
+		);
 
-        masterM3u8 += `#EXT-X-STREAM-INF:BANDWIDTH=${bandwidth},RESOLUTION=${res}\n${pUrl}\n`;
-      });
+		if (Hls.isSupported() && hlsStreams.length > 0) {
+			let masterM3u8 = "#EXTM3U\n";
+			hlsStreams.forEach((s) => {
+				let bandwidth = 5000000;
+				let res = "1920x1080";
+				if (s.quality === "720p") { bandwidth = 2500000; res = "1280x720"; }
+				if (s.quality === "480p") { bandwidth = 1500000; res = "854x480"; }
+				if (s.quality === "360p") { bandwidth = 800000; res = "640x360"; }
 
-      const blob = new Blob([masterM3u8], { type: "application/vnd.apple.mpegurl" });
-      const masterUrl = URL.createObjectURL(blob);
+				let pUrl = window.location.origin + "/proxy?url=" + encodeURIComponent(s.url);
+				if (s.referer) pUrl += "&referer=" + encodeURIComponent(s.referer);
 
-      const streamReferer = hlsStreams[0]?.referer || "";
+				masterM3u8 += `#EXT-X-STREAM-INF:BANDWIDTH=${bandwidth},RESOLUTION=${res}\n${pUrl}\n`;
+			});
 
-      const hls = new Hls({
-        maxBufferLength: 60,
-        maxMaxBufferLength: 120,
-        fragLoadingTimeOut: 120000,
-        manifestLoadingTimeOut: 120000,
-        levelLoadingTimeOut: 120000,
-        fragLoadingMaxRetry: 10,
-        levelLoadingMaxRetry: 10,
-        xhrSetup: function (xhr, url) {
-          if (!url.startsWith("blob:") && !url.includes("/proxy?")) {
-            let proxyUrl = "/proxy?url=" + encodeURIComponent(url);
-            if (streamReferer) proxyUrl += "&referer=" + encodeURIComponent(streamReferer);
-            xhr.open("GET", proxyUrl, true);
-          }
-        },
-      });
+			const blob = new Blob([masterM3u8], { type: "application/vnd.apple.mpegurl" });
+			const masterUrl = URL.createObjectURL(blob);
+			const streamReferer = hlsStreams[0]?.referer || "";
 
-      hls.loadSource(masterUrl);
-      hls.attachMedia(video);
+			const hls = new Hls({
+				maxBufferLength: 60,
+				maxMaxBufferLength: 120,
+				fragLoadingTimeOut: 120000,
+				manifestLoadingTimeOut: 120000,
+				levelLoadingTimeOut: 120000,
+				fragLoadingMaxRetry: 10,
+				levelLoadingMaxRetry: 10,
+				xhrSetup: function (xhr, url) {
+					if (!url.startsWith("blob:") && !url.includes("/proxy?")) {
+						let proxyUrl = "/proxy?url=" + encodeURIComponent(url);
+						if (streamReferer) proxyUrl += "&referer=" + encodeURIComponent(streamReferer);
+						xhr.open("GET", proxyUrl, true);
+					}
+				},
+			});
 
-      hls.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
-        const q = data.levels.map((level, index) => ({
-          label: `${level.height}p`,
-          value: index,
-        }));
-        setQualities([{ label: "Auto", value: -1 }, ...q]);
-        setCurrentQuality(-1);
-        setIsReady(true);
+			hls.loadSource(masterUrl);
+			hls.attachMedia(video);
 
-        if (initialTime > 0) {
-          video.currentTime = initialTime;
-        }
-        video.play().catch(() => {});
-      });
+			hls.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
+				const q = data.levels.map((level, index) => ({
+					label: `${level.height}p`,
+					value: index,
+				}));
+				setQualities([{ label: "Auto", value: -1 }, ...q]);
+				setCurrentQuality(-1);
+				setIsReady(true);
 
-      hls.on(Hls.Events.ERROR, (_, errData) => {
-        if (errData.fatal) {
-          switch (errData.type) {
-            case Hls.ErrorTypes.NETWORK_ERROR:
-              hls.startLoad();
-              break;
-            case Hls.ErrorTypes.MEDIA_ERROR:
-              hls.recoverMediaError();
-              break;
-            default:
-              hls.destroy();
-              break;
-          }
-        }
-      });
+				if (initialTime > 0) {
+					video.currentTime = initialTime;
+				}
+				video.play().catch(() => {});
+			});
 
-      hlsRef.current = hls;
-    } else if (video.canPlayType("application/vnd.apple.mpegurl") && hlsStreams.length > 0) {
-      // Safari native HLS
-      let proxyUrl = "/proxy?url=" + encodeURIComponent(hlsStreams[0].url);
-      if (hlsStreams[0].referer) proxyUrl += "&referer=" + encodeURIComponent(hlsStreams[0].referer);
-      video.src = proxyUrl;
-      video.addEventListener("loadedmetadata", () => {
-        setIsReady(true);
-        if (initialTime > 0) video.currentTime = initialTime;
-        video.play().catch(() => {});
-      });
-    } else {
-      // Direct MP4 streams
-      const directStreams = streams.filter((s) => s.type !== "hls" && !s.url?.includes(".m3u8"));
-      if (directStreams.length > 0) {
-        const q = directStreams.map((s) => ({ label: s.quality, value: s.quality }));
-        setQualities(q);
-        setCurrentQuality(directStreams[0].quality);
+			hls.on(Hls.Events.ERROR, (_, errData) => {
+				if (errData.fatal) {
+					switch (errData.type) {
+						case Hls.ErrorTypes.NETWORK_ERROR:
+							hls.startLoad();
+							break;
+						case Hls.ErrorTypes.MEDIA_ERROR:
+							hls.recoverMediaError();
+							break;
+						default:
+							hls.destroy();
+							break;
+					}
+				}
+			});
 
-        let proxyUrl = "/proxy?url=" + encodeURIComponent(directStreams[0].url);
-        if (directStreams[0].referer) proxyUrl += "&referer=" + encodeURIComponent(directStreams[0].referer);
-        video.src = proxyUrl;
-        setIsReady(true);
-      }
-    }
+			hlsRef.current = hls;
+		} else if (video.canPlayType("application/vnd.apple.mpegurl") && hlsStreams.length > 0) {
+			let proxyUrl = "/proxy?url=" + encodeURIComponent(hlsStreams[0].url);
+			if (hlsStreams[0].referer) proxyUrl += "&referer=" + encodeURIComponent(hlsStreams[0].referer);
+			video.src = proxyUrl;
+			video.addEventListener("loadedmetadata", () => {
+				setIsReady(true);
+				if (initialTime > 0) video.currentTime = initialTime;
+				video.play().catch(() => {});
+			});
+		} else {
+			const directStreams = streams.filter((s) => s.type !== "hls" && !s.url?.includes(".m3u8"));
+			if (directStreams.length > 0) {
+				const q = directStreams.map((s) => ({ label: s.quality, value: s.quality }));
+				setQualities(q);
+				setCurrentQuality(directStreams[0].quality);
 
-    return () => destroyHls();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [streams, destroyHls]);
+				let proxyUrl = "/proxy?url=" + encodeURIComponent(directStreams[0].url);
+				if (directStreams[0].referer) proxyUrl += "&referer=" + encodeURIComponent(directStreams[0].referer);
+				video.src = proxyUrl;
+				setIsReady(true);
+			}
+		}
 
-  // Add subtitle tracks
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video || !subtitles?.length) return;
+		return () => destroyHls();
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [streams, destroyHls, isLoading]);
 
-    // Remove existing tracks
-    while (video.firstChild) video.removeChild(video.firstChild);
+	// Subtitle tracks
+	useEffect(() => {
+		const video = videoRef.current;
+		if (!video || !subtitles?.length) return;
 
-    subtitles.forEach((sub, idx) => {
-      const track = document.createElement("track");
-      track.kind = sub.kind || "captions";
-      track.label = sub.label || `Subtitle ${idx + 1}`;
-      track.src = sub.file;
-      if (idx === 0) track.default = true;
-      video.appendChild(track);
-    });
-  }, [subtitles, isReady]);
+		while (video.firstChild) video.removeChild(video.firstChild);
 
-  // Time update handler
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
+		subtitles.forEach((sub, idx) => {
+			const track = document.createElement("track");
+			track.kind = sub.kind || "captions";
+			track.label = sub.label || `Subtitle ${idx + 1}`;
+			track.src = sub.file;
+			if (idx === 0) track.default = true;
+			video.appendChild(track);
+		});
+	}, [subtitles, isReady, isLoading]);
 
-    const handleTimeUpdate = () => {
-      setCurrentTime(video.currentTime);
-      onTimeUpdate?.({
-        currentTime: video.currentTime,
-        duration: video.duration,
-      });
-    };
 
-    video.addEventListener("timeupdate", handleTimeUpdate);
-    return () => video.removeEventListener("timeupdate", handleTimeUpdate);
-  }, [onTimeUpdate]);
 
-  const handleQualityChange = (quality) => {
-    setCurrentQuality(quality);
-    if (hlsRef.current) {
-      hlsRef.current.currentLevel = parseInt(quality);
-    } else {
-      // Direct stream quality switch
-      const video = videoRef.current;
-      const selectedStream = streams.find((s) => s.quality === quality);
-      if (selectedStream && video) {
-        const ct = video.currentTime;
-        let proxyUrl = "/proxy?url=" + encodeURIComponent(selectedStream.url);
-        if (selectedStream.referer) proxyUrl += "&referer=" + encodeURIComponent(selectedStream.referer);
-        video.src = proxyUrl;
-        video.currentTime = ct;
-        video.play().catch(() => {});
-      }
-    }
-  };
+	// Quality change handler
+	useEffect(() => {
+		if (hlsRef.current && currentQuality !== undefined) {
+			hlsRef.current.currentLevel = parseInt(currentQuality);
+		}
+	}, [currentQuality]);
 
-  const handleSkipIntro = () => {
-    if (videoRef.current && intro) {
-      videoRef.current.currentTime = intro.end;
-    }
-  };
+	// Auto-skip intro
+	useEffect(() => {
+		if (autoSkipIntro && intro && intro.end > 0 && currentTime >= intro.start && currentTime < intro.end) {
+			seek(intro.end);
+		}
+	}, [autoSkipIntro, intro, currentTime, seek]);
 
-  const handleSkipOutro = () => {
-    if (videoRef.current && outro) {
-      videoRef.current.currentTime = outro.end;
-    }
-  };
+	// Auto-skip outro
+	useEffect(() => {
+		if (autoSkipOutro && outro && outro.end > 0 && currentTime >= outro.start && currentTime < outro.end) {
+			seek(outro.end);
+		}
+	}, [autoSkipOutro, outro, currentTime, seek]);
 
-  const showSkipIntro =
-    intro && intro.end > 0 && currentTime >= intro.start && currentTime < intro.end;
-  const showSkipOutro =
-    outro && outro.end > 0 && currentTime >= outro.start && currentTime < outro.end;
 
-  return (
-    <div className="relative w-full">
-      {/* Video container with 16:9 aspect ratio */}
-      <div className="relative w-full pt-[56.25%] bg-black rounded-lg overflow-hidden shadow-2xl shadow-black/60 border border-surface-border">
-        <video
-          ref={videoRef}
-          className="absolute inset-0 w-full h-full"
-          controls
-          playsInline
-          crossOrigin="anonymous"
-        />
 
-        {/* Skip buttons */}
-        {showSkipIntro && <SkipButton label="Skip Intro" onClick={handleSkipIntro} />}
-        {showSkipOutro && <SkipButton label="Skip Outro" onClick={handleSkipOutro} />}
-      </div>
+	// Keyboard shortcuts
+	useEffect(() => {
+		const handleKeyDown = (e) => {
+			// Don't capture when typing in inputs
+			if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA" || e.target.tagName === "SELECT") return;
 
-      {/* Quality selector */}
-      {qualities.length > 0 && (
-        <div className="mt-4 flex justify-end">
-          <QualitySelector
-            qualities={qualities}
-            current={currentQuality}
-            onChange={handleQualityChange}
-          />
-        </div>
-      )}
-    </div>
-  );
+			switch (e.key.toLowerCase()) {
+				case " ":
+				case "k":
+					e.preventDefault();
+					togglePlay();
+					break;
+				case "arrowleft":
+				case "j":
+					e.preventDefault();
+					seek(Math.max(0, (videoRef.current?.currentTime || 0) - 5));
+					break;
+				case "arrowright":
+				case "l":
+					e.preventDefault();
+					seek(Math.min(videoRef.current?.duration || 0, (videoRef.current?.currentTime || 0) + 5));
+					break;
+				case "arrowup":
+					e.preventDefault();
+					playerState.setVolume((v) => Math.min(1, v + 0.1));
+					break;
+				case "arrowdown":
+					e.preventDefault();
+					playerState.setVolume((v) => Math.max(0, v - 0.1));
+					break;
+				case "f":
+					e.preventDefault();
+					playerState.toggleFullscreen();
+					break;
+				case "m":
+					e.preventDefault();
+					playerState.toggleMute();
+					break;
+				default:
+					break;
+			}
+			resetControlsTimer();
+		};
+
+		document.addEventListener("keydown", handleKeyDown);
+		return () => document.removeEventListener("keydown", handleKeyDown);
+	}, [togglePlay, seek, playerState, resetControlsTimer]);
+
+	// Manual skip buttons (only when auto-skip is OFF)
+	const showSkipIntro = !autoSkipIntro && intro && intro.end > 0 && currentTime >= intro.start && currentTime < intro.end;
+	const showSkipOutro = !autoSkipOutro && outro && outro.end > 0 && currentTime >= outro.start && currentTime < outro.end;
+
+	// Loading state shell
+	if (isLoading) {
+		return (
+			<div className="player-container">
+				<div className="relative w-full pt-[56.25%] bg-black rounded-lg overflow-hidden flex items-center justify-center">
+					<div className="absolute inset-0 flex items-center justify-center">
+						<div className="w-12 h-12 border-4 border-text-muted border-t-netflix-red rounded-full animate-spin" />
+					</div>
+				</div>
+			</div>
+		);
+	}
+
+	return (
+		<div
+			ref={containerRef}
+			className={`player-container ${showControls ? "" : "player-controls-hidden"}`}
+			onMouseMove={() => { resetControlsTimer(); }}
+			onClick={(e) => {
+				// Close settings if clicking outside
+				if (settingsOpen) {
+					setSettingsOpen(false);
+					return;
+				}
+			}}
+		>
+			{/* Video element */}
+			<div className="relative w-full pt-[56.25%] bg-black rounded-lg overflow-hidden">
+				<video
+					ref={videoRef}
+					className="absolute inset-0 w-full h-full cursor-pointer"
+					playsInline
+					crossOrigin="anonymous"
+					onPlay={playerState.onPlay}
+					onPause={playerState.onPause}
+					onTimeUpdate={(e) => {
+						playerState.onTimeUpdate(e);
+						onTimeUpdate?.({
+							currentTime: e.target.currentTime,
+							duration: e.target.duration,
+						});
+					}}
+					onDurationChange={playerState.onDurationChange}
+					onProgress={playerState.onProgress}
+					onEnded={() => {
+						onEnded?.();
+						if (autoNext && hasNext && onNextEpisode) {
+							onNextEpisode();
+						}
+					}}
+					onClick={(e) => {
+						e.stopPropagation();
+						togglePlay();
+						resetControlsTimer();
+					}}
+					onDoubleClick={(e) => {
+						e.stopPropagation();
+						playerState.toggleFullscreen();
+					}}
+				/>
+
+				{/* Fullscreen Title Overlay */}
+				{playerState.isFullscreen && title && (
+					<div className={`absolute top-0 left-0 right-0 p-4 pt-6 bg-gradient-to-b from-black/80 to-transparent pointer-events-none transition-opacity duration-300 ${showControls ? "opacity-100" : "opacity-0"}`}>
+						<h2 className="text-white text-lg font-bold drop-shadow-md px-4">{title}</h2>
+					</div>
+				)}
+
+				{/* Center play overlay (paused state) */}
+				{!isPlaying && isReady && (
+					<div
+						className="absolute inset-0 flex items-center justify-center cursor-pointer"
+						onClick={(e) => {
+							e.stopPropagation();
+							togglePlay();
+						}}
+					>
+						<div className="w-16 h-16 rounded-full bg-netflix-red/90 flex items-center justify-center shadow-2xl shadow-black/50 transition-transform hover:scale-110">
+							<Play className="w-7 h-7 text-white ml-1" />
+						</div>
+					</div>
+				)}
+
+				{/* Skip buttons */}
+				{showSkipIntro && (
+					<SkipButton label="Skip Intro" onClick={() => seek(intro.end)} />
+				)}
+				{showSkipOutro && (
+					<SkipButton label="Skip Outro" onClick={() => seek(outro.end)} />
+				)}
+
+				{/* Controls overlay (bottom gradient + controls) */}
+				<div className="player-controls-overlay">
+					<PlayerControls
+						playerState={playerState}
+						qualities={qualities}
+						hasPrev={hasPrev}
+						hasNext={hasNext}
+						onPrevEpisode={onPrevEpisode}
+						onNextEpisode={onNextEpisode}
+						intro={intro}
+						outro={outro}
+					/>
+				</div>
+			</div>
+		</div>
+	);
 }

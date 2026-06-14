@@ -261,18 +261,49 @@ app.get("/api/search", async (req, res) => {
     const query = req.query.query;
     const page = parseInt(req.query.page) || 1;
     const perPage = parseInt(req.query.per_page) || 20;
+    const { genre, format, status, sort } = req.query;
+
+    const args = ["type: ANIME"];
+    const variables = { page, perPage };
+    const varTypes = ["$page: Int", "$perPage: Int"];
+
+    if (query) {
+      args.push("search: $search");
+      variables.search = query;
+      varTypes.push("$search: String");
+    }
+    if (sort && SORT_MAP[sort]) {
+      args.push(`sort: [${SORT_MAP[sort]}]`);
+    } else {
+      args.push("sort: SEARCH_MATCH");
+    }
+    if (genre) {
+      args.push("genre: $genre");
+      variables.genre = genre;
+      varTypes.push("$genre: String");
+    }
+    if (format) {
+      args.push("format: $format");
+      variables.format = format.toUpperCase();
+      varTypes.push("$format: MediaFormat");
+    }
+    if (status) {
+      args.push("status: $status");
+      variables.status = status.toUpperCase();
+      varTypes.push("$status: MediaStatus");
+    }
 
     const gql = `
-        query ($search: String, $page: Int, $perPage: Int) {
+        query (${varTypes.join(", ")}) {
             Page(page: $page, perPage: $perPage) {
                 pageInfo { total currentPage lastPage hasNextPage perPage }
-                media(search: $search, type: ANIME, sort: SEARCH_MATCH) {
+                media(${args.join(", ")}) {
                     ${MEDIA_LIST_FIELDS}
                 }
             }
         }`;
 
-    const data = await anilistQuery(gql, { search: query, page, perPage });
+    const data = await anilistQuery(gql, variables);
     const pageData = data.Page || {};
     const pageInfo = pageData.pageInfo || {};
 
@@ -545,6 +576,58 @@ app.get("/api/schedule", async (req, res) => {
   }
 });
 
+app.get("/api/schedule/week", async (req, res) => {
+  try {
+    const now = Math.floor(Date.now() / 1000);
+    const daySeconds = 86400;
+    // 3 days back, 4 days forward from start of today
+    const todayStart = now - (now % daySeconds);
+    const weekStart = todayStart - (3 * daySeconds);
+    const weekEnd = todayStart + (4 * daySeconds);
+
+    // Fetch multiple pages to get full week data
+    let allResults = [];
+    let page = 1;
+    let hasMore = true;
+
+    while (hasMore && page <= 5) {
+      const gql = `
+        query ($page: Int, $perPage: Int, $start: Int, $end: Int) {
+            Page(page: $page, perPage: $perPage) {
+                pageInfo { hasNextPage }
+                airingSchedules(airingAt_greater: $start, airingAt_lesser: $end, sort: TIME) {
+                    episode airingAt timeUntilAiring
+                    media { ${MEDIA_LIST_FIELDS} }
+                }
+            }
+        }`;
+      const data = await anilistQuery(gql, {
+        page,
+        perPage: 50,
+        start: weekStart,
+        end: weekEnd,
+      });
+      const pageData = data.Page || {};
+      const schedules = pageData.airingSchedules || [];
+
+      schedules.forEach((item) => {
+        const entry = item.media || {};
+        entry.next_episode = item.episode;
+        entry.airingAt = item.airingAt;
+        entry.timeUntilAiring = item.timeUntilAiring;
+        allResults.push(entry);
+      });
+
+      hasMore = pageData.pageInfo?.hasNextPage || false;
+      page++;
+    }
+
+    res.json(proxyDeepImages({ results: allResults }));
+  } catch (err) {
+    res.status(500).json({ detail: err.message });
+  }
+});
+
 // ─── Anime Details ───────────────────────────────────────────────────────────
 
 app.get("/api/info/:anilist_id", async (req, res) => {
@@ -787,7 +870,7 @@ app.get("/proxy", async (req, res) => {
 
     let customReferer = req.query.referer;
     
-    // Force Kwik referer for all AnimePahe / KIWI CDNs to prevent 403 Forbidden on segments
+    // Force Kwik referer for all AnimePahe / KIWI CDNs
     if (targetUrl.includes('owocdn.top') || targetUrl.includes('uwucdn.top') || targetUrl.includes('bigdreamsmalldih.site')) {
         customReferer = 'https://kwik.cx/';
     }
@@ -817,6 +900,8 @@ app.get("/proxy", async (req, res) => {
     const response = await fetch(targetUrl, { headers });
     let buffer = await response.arrayBuffer();
 
+    console.log(`[Proxy] Fetching: ${targetUrl.substring(0, 60)}... | Status: ${response.status} | Length: ${buffer.byteLength}`);
+
     // Bulletproof check for M3U8 playlists using file signature
     let isM3u8 = false;
     if (buffer.byteLength > 7) {
@@ -826,23 +911,35 @@ app.get("/proxy", async (req, res) => {
         }
     }
 
+    // Capture dynamic host to support both local dev and Docker Nginx
+    const host = req.get('host'); 
+    const proto = req.headers['x-forwarded-proto'] || req.protocol;
+    const proxyBase = `${proto}://${host}/proxy?url=`;
+
     if (isM3u8) {
       let text = Buffer.from(buffer).toString("utf-8");
       const baseUrl = new URL(targetUrl);
       const lines = text.split('\n');
+      
       for (let i = 0; i < lines.length; i++) {
         let line = lines[i].trim();
         if (line && !line.startsWith('#')) {
+          // Wrap video chunks in local proxy
+          let absoluteUrl = line;
           if (!line.startsWith('http://') && !line.startsWith('https://')) {
-            lines[i] = new URL(line, baseUrl).href;
+            absoluteUrl = new URL(line, baseUrl).href;
           }
+          lines[i] = proxyBase + encodeURIComponent(absoluteUrl);
+          
         } else if (line.includes('URI="')) {
+          // Wrap encryption keys in local proxy
           const match = line.match(/URI="([^"]+)"/);
           if (match) {
             let uri = match[1];
             if (!uri.startsWith('http://') && !uri.startsWith('https://') && !uri.startsWith('data:')) {
-              uri = new URL(uri, baseUrl).href;
-              lines[i] = line.replace(`URI="${match[1]}"`, `URI="${uri}"`);
+              let absoluteUri = new URL(uri, baseUrl).href;
+              let wrappedUri = proxyBase + encodeURIComponent(absoluteUri);
+              lines[i] = line.replace(`URI="${match[1]}"`, `URI="${wrappedUri}"`);
             }
           }
         }
@@ -862,6 +959,15 @@ app.get("/proxy", async (req, res) => {
       }
     });
 
+    // ==========================================
+    // THE FIX: Override fake image headers for video chunks
+    // ==========================================
+    if (isM3u8) {
+        res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
+    } else if (targetUrl.includes('.jpg') || targetUrl.includes('.png') || targetUrl.includes('.ts')) {
+        res.setHeader("Content-Type", "video/mp2t");
+    }
+
     res.setHeader("Content-Length", buffer.byteLength);
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
@@ -876,7 +982,6 @@ app.get("/proxy", async (req, res) => {
     res.status(500).send("Proxy error");
   }
 });
-
 
 // ──────────────────────────────────────────────
 // SPA fallback — serve React app for all other routes
@@ -908,6 +1013,15 @@ if (require.main === module) {
       server.listen(port, "127.0.0.1");
     });
   };
+
+  const defaultPort = parseInt(process.env.PORT, 10) || 3000;
+
+  if (process.env.NO_PROMPT === "true" || process.env.NODE_ENV === "production" || !process.stdin.isTTY) {
+    app.listen(defaultPort, "0.0.0.0", () => {
+      console.log(`\n✅ Server successfully started on port ${defaultPort} (Non-interactive mode)`);
+    });
+    return;
+  }
 
   const rl = readline.createInterface({
     input: process.stdin,

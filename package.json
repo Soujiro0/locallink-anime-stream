@@ -7,6 +7,7 @@
   "scripts": {
     "test": "vitest run",
     "start": "node index.js",
+    "build:client": "cd client && npm install && npm run build",
     "package": "pkg . --targets node18-linux-x64,node18-win-x64 --out-path dist-bin",
     "release": "standard-version"
   },

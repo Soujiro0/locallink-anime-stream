@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import AnimeGrid from "../components/anime/AnimeGrid";
+import Dropdown from "../components/ui/Dropdown";
+import Pagination from "../components/ui/Pagination";
 import { filterAnime } from "../services/api";
 import { GENRES, FORMATS, STATUSES, SEASONS, SORT_OPTIONS, YEARS } from "../utils/constants";
 
@@ -62,32 +64,6 @@ export default function BrowsePage() {
     return () => { cancelled = true; };
   }, [searchParams, page]);
 
-  const SelectFilter = ({ label, value, options, onChange }) => (
-    <div className="space-y-1">
-      <label className="text-xs font-semibold text-text-muted uppercase tracking-wider">
-        {label}
-      </label>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full bg-surface-base border border-surface-border text-text-primary text-sm rounded-lg px-3 py-2.5 outline-none focus:border-netflix-red transition-colors cursor-pointer"
-      >
-        <option value="">All</option>
-        {options.map((opt) =>
-          typeof opt === "object" ? (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ) : (
-            <option key={opt} value={opt}>
-              {opt}
-            </option>
-          )
-        )}
-      </select>
-    </div>
-  );
-
   return (
     <div id="browse-page" className="pt-24 px-5 lg:px-24 pb-16 min-h-screen">
       <h1 className="text-3xl lg:text-4xl font-black text-text-primary mb-8">
@@ -96,37 +72,37 @@ export default function BrowsePage() {
 
       {/* Filters */}
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-4 mb-10 p-5 bg-surface-base rounded-xl border border-surface-border">
-        <SelectFilter
+        <Dropdown
           label="Genre"
           value={filters.genre}
           options={GENRES}
           onChange={(v) => updateFilter("genre", v)}
         />
-        <SelectFilter
+        <Dropdown
           label="Format"
           value={filters.format}
           options={FORMATS}
           onChange={(v) => updateFilter("format", v)}
         />
-        <SelectFilter
+        <Dropdown
           label="Status"
           value={filters.status}
           options={STATUSES}
           onChange={(v) => updateFilter("status", v)}
         />
-        <SelectFilter
+        <Dropdown
           label="Season"
           value={filters.season}
           options={SEASONS}
           onChange={(v) => updateFilter("season", v)}
         />
-        <SelectFilter
+        <Dropdown
           label="Year"
           value={filters.year}
           options={YEARS}
           onChange={(v) => updateFilter("year", v)}
         />
-        <SelectFilter
+        <Dropdown
           label="Sort By"
           value={filters.sort}
           options={SORT_OPTIONS}
@@ -143,31 +119,11 @@ export default function BrowsePage() {
 
       {/* Pagination */}
       {!loading && anime.length > 0 && (
-        <div className="flex items-center justify-center gap-4 mt-12">
-          <button
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={page === 1}
-            className={`px-6 py-3 rounded-lg text-sm font-medium transition-colors ${
-              page === 1
-                ? "bg-surface-base text-text-muted cursor-not-allowed"
-                : "bg-surface-base border border-surface-border text-text-primary hover:bg-surface-raised"
-            }`}
-          >
-            Previous
-          </button>
-          <span className="text-text-secondary text-sm">Page {page}</span>
-          <button
-            onClick={() => hasNext && setPage((p) => p + 1)}
-            disabled={!hasNext}
-            className={`px-6 py-3 rounded-lg text-sm font-medium transition-colors ${
-              !hasNext
-                ? "bg-surface-base text-text-muted cursor-not-allowed"
-                : "bg-netflix-red text-white hover:bg-netflix-red-hover"
-            }`}
-          >
-            Next
-          </button>
-        </div>
+        <Pagination
+          page={page}
+          hasNext={hasNext}
+          onPageChange={setPage}
+        />
       )}
     </div>
   );

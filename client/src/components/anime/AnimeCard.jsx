@@ -49,12 +49,12 @@ export default function AnimeCard({ anime, className = "" }) {
 			</div>
 
 			{/* Title */}
-			<div className="p-3">
-				<h3 className="text-sm font-medium text-text-primary line-clamp-2 leading-snug">
+			<div className="p-2.5 lg:p-2">
+				<h3 className="text-sm lg:text-xs font-medium text-text-primary line-clamp-2 leading-snug">
 					{title}
 				</h3>
 				{anime.genres && anime.genres.length > 0 && (
-					<p className="text-xs text-text-muted mt-1.5 truncate">
+					<p className="text-xs text-text-muted mt-1.5 lg:mt-1 truncate">
 						{anime.genres.slice(0, 3).join(" · ")}
 					</p>
 				)}

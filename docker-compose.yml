@@ -1,0 +1,30 @@
+services:
+  locallink:
+    build:
+      context: .
+      dockerfile: ./docker/Dockerfile
+    container_name: locallink-anime-stream
+    # Expose tells Docker to open the port internally, but keeps it hidden from your host machine
+    expose:
+      - "3000"
+    environment:
+      - NODE_ENV=production
+      - NO_PROMPT=true
+      - PORT=3000
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  # The new Reverse Proxy
+  proxy:
+    image: nginx:alpine
+    container_name: locallink-proxy
+    ports:
+      - "3010:80" # Binds the proxy to your machine's default HTTP web port
+    volumes:
+      - ./docker/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - locallink
+    restart: unless-stopped

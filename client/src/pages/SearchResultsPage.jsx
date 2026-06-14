@@ -1,15 +1,37 @@
 import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import AnimeGrid from "../components/anime/AnimeGrid";
+import Dropdown from "../components/ui/Dropdown";
+import Pagination from "../components/ui/Pagination";
 import { searchAnime } from "../services/api";
+import { GENRES, FORMATS, STATUSES, SORT_OPTIONS } from "../utils/constants";
 
 export default function SearchResultsPage() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const query = searchParams.get("q") || "";
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [hasNext, setHasNext] = useState(false);
+
+  // Filter state from URL params
+  const filters = {
+    genre: searchParams.get("genre") || "",
+    format: searchParams.get("format") || "",
+    status: searchParams.get("status") || "",
+    sort: searchParams.get("sort") || "",
+  };
+
+  const updateFilter = (key, value) => {
+    const newParams = new URLSearchParams(searchParams);
+    if (value) {
+      newParams.set(key, value);
+    } else {
+      newParams.delete(key);
+    }
+    setSearchParams(newParams);
+    setPage(1);
+  };
 
   useEffect(() => {
     if (!query.trim()) return;
@@ -17,7 +39,12 @@ export default function SearchResultsPage() {
     let cancelled = false;
     setLoading(true);
 
-    searchAnime(query, page)
+    searchAnime(query, page, {
+      genre: filters.genre,
+      format: filters.format,
+      status: filters.status,
+      sort: filters.sort,
+    })
       .then((data) => {
         if (!cancelled) {
           setResults(data.results || []);
@@ -33,7 +60,7 @@ export default function SearchResultsPage() {
       });
 
     return () => { cancelled = true; };
-  }, [query, page]);
+  }, [query, page, filters.genre, filters.format, filters.status, filters.sort]);
 
   return (
     <div id="search-results-page" className="pt-24 px-5 lg:px-24 pb-16 min-h-screen">
@@ -41,10 +68,38 @@ export default function SearchResultsPage() {
         Search Results
       </h1>
       {query && (
-        <p className="text-text-secondary mb-8">
+        <p className="text-text-secondary mb-6">
           Showing results for "<span className="text-text-primary font-medium">{query}</span>"
         </p>
       )}
+
+      {/* Filters */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8 p-4 bg-surface-base rounded-xl border border-surface-border">
+        <Dropdown
+          label="Genre"
+          value={filters.genre}
+          options={GENRES}
+          onChange={(v) => updateFilter("genre", v)}
+        />
+        <Dropdown
+          label="Format"
+          value={filters.format}
+          options={FORMATS}
+          onChange={(v) => updateFilter("format", v)}
+        />
+        <Dropdown
+          label="Status"
+          value={filters.status}
+          options={STATUSES}
+          onChange={(v) => updateFilter("status", v)}
+        />
+        <Dropdown
+          label="Sort By"
+          value={filters.sort}
+          options={SORT_OPTIONS}
+          onChange={(v) => updateFilter("sort", v)}
+        />
+      </div>
 
       <AnimeGrid
         anime={results}
@@ -54,31 +109,11 @@ export default function SearchResultsPage() {
 
       {/* Pagination */}
       {!loading && results.length > 0 && (
-        <div className="flex items-center justify-center gap-4 mt-12">
-          <button
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={page === 1}
-            className={`px-6 py-3 rounded-lg text-sm font-medium transition-colors ${
-              page === 1
-                ? "bg-surface-base text-text-muted cursor-not-allowed"
-                : "bg-surface-base border border-surface-border text-text-primary hover:bg-surface-raised"
-            }`}
-          >
-            Previous
-          </button>
-          <span className="text-text-secondary text-sm">Page {page}</span>
-          <button
-            onClick={() => hasNext && setPage((p) => p + 1)}
-            disabled={!hasNext}
-            className={`px-6 py-3 rounded-lg text-sm font-medium transition-colors ${
-              !hasNext
-                ? "bg-surface-base text-text-muted cursor-not-allowed"
-                : "bg-netflix-red text-white hover:bg-netflix-red-hover"
-            }`}
-          >
-            Next
-          </button>
-        </div>
+        <Pagination
+          page={page}
+          hasNext={hasNext}
+          onPageChange={setPage}
+        />
       )}
     </div>
   );
