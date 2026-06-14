@@ -853,16 +853,6 @@ app.get("/api/watch/:provider/:anilist_id/:category/:slug", async (req, res) => 
 // Proxy (for HLS segments, M3U8 playlists, etc.)
 // ──────────────────────────────────────────────
 
-app.options("/proxy", (req, res) => {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
-  res.setHeader(
-    "Access-Control-Allow-Headers",
-    "DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization"
-  );
-  res.sendStatus(204);
-});
-
 app.get("/proxy", async (req, res) => {
   try {
     const targetUrl = req.query.url;
@@ -870,14 +860,12 @@ app.get("/proxy", async (req, res) => {
 
     let customReferer = req.query.referer;
     
-    // Force Kwik referer for all AnimePahe / KIWI CDNs
+    // Force Kwik referer for AnimePahe CDNs
     if (targetUrl.includes('owocdn.top') || targetUrl.includes('uwucdn.top') || targetUrl.includes('bigdreamsmalldih.site')) {
         customReferer = 'https://kwik.cx/';
     }
 
-    const refererHeader = customReferer
-      ? customReferer
-      : new URL(targetUrl).origin + "/";
+    const refererHeader = customReferer ? customReferer : new URL(targetUrl).origin + "/";
     let originHeader = "";
     try {
       originHeader = new URL(refererHeader).origin;
@@ -886,13 +874,14 @@ app.get("/proxy", async (req, res) => {
     }
 
     const headers = {
-      "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-      Accept: "*/*",
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "Accept": "*/*",
       "Accept-Language": "en-US,en;q=0.9",
-      Referer: refererHeader,
-      Origin: originHeader,
+      "Referer": refererHeader,
+      "Origin": originHeader,
     };
+
+    // Crucial for video chunk streaming
     if (req.headers.range) {
       headers["Range"] = req.headers.range;
     }
@@ -900,45 +889,41 @@ app.get("/proxy", async (req, res) => {
     const response = await fetch(targetUrl, { headers });
     let buffer = await response.arrayBuffer();
 
-    console.log(`[Proxy] Fetching: ${targetUrl.substring(0, 60)}... | Status: ${response.status} | Length: ${buffer.byteLength}`);
+    console.log(`[Proxy] Status: ${response.status} | Length: ${buffer.byteLength} | URL: ${targetUrl.substring(0, 60)}...`);
 
-    // Bulletproof check for M3U8 playlists using file signature
+    const isKey = targetUrl.includes('.key');
     let isM3u8 = false;
-    if (buffer.byteLength > 7) {
+    
+    if (!isKey && buffer.byteLength > 7) {
         const header = Buffer.from(buffer.slice(0, 7)).toString('utf-8');
         if (header === '#EXTM3U') {
             isM3u8 = true;
         }
     }
 
-    // Capture dynamic host to support both local dev and Docker Nginx
-    const host = req.get('host'); 
-    const proto = req.headers['x-forwarded-proto'] || req.protocol;
-    const proxyBase = `${proto}://${host}/proxy?url=`;
-
     if (isM3u8) {
       let text = Buffer.from(buffer).toString("utf-8");
       const baseUrl = new URL(targetUrl);
       const lines = text.split('\n');
       
+      // Use a relative path so it perfectly matches whatever domain/port the browser is on
+      const proxyBase = `/proxy?url=`; 
+
       for (let i = 0; i < lines.length; i++) {
         let line = lines[i].trim();
         if (line && !line.startsWith('#')) {
-          // Wrap video chunks in local proxy
-          let absoluteUrl = line;
-          if (!line.startsWith('http://') && !line.startsWith('https://')) {
-            absoluteUrl = new URL(line, baseUrl).href;
-          }
-          lines[i] = proxyBase + encodeURIComponent(absoluteUrl);
+          // Wrap Video Chunks & force Referer inheritance
+          let absoluteUrl = line.startsWith('http') ? line : new URL(line, baseUrl).href;
+          lines[i] = proxyBase + encodeURIComponent(absoluteUrl) + "&referer=" + encodeURIComponent(refererHeader);
           
         } else if (line.includes('URI="')) {
-          // Wrap encryption keys in local proxy
+          // Wrap AES Keys (handle absolute URLs properly) & force Referer inheritance
           const match = line.match(/URI="([^"]+)"/);
           if (match) {
             let uri = match[1];
-            if (!uri.startsWith('http://') && !uri.startsWith('https://') && !uri.startsWith('data:')) {
-              let absoluteUri = new URL(uri, baseUrl).href;
-              let wrappedUri = proxyBase + encodeURIComponent(absoluteUri);
+            if (!uri.startsWith('data:')) {
+              let absoluteUri = uri.startsWith('http') ? uri : new URL(uri, baseUrl).href;
+              let wrappedUri = proxyBase + encodeURIComponent(absoluteUri) + "&referer=" + encodeURIComponent(refererHeader);
               lines[i] = line.replace(`URI="${match[1]}"`, `URI="${wrappedUri}"`);
             }
           }
@@ -950,8 +935,8 @@ app.get("/proxy", async (req, res) => {
 
     res.status(response.status);
 
+    // Forward crucial CDN response headers (like Accept-Ranges) back to the React player
     const headersToKeep = ["content-type", "accept-ranges", "content-range"];
-
     response.headers.forEach((val, key) => {
       const lowerKey = key.toLowerCase();
       if (headersToKeep.includes(lowerKey)) {
@@ -959,11 +944,11 @@ app.get("/proxy", async (req, res) => {
       }
     });
 
-    // ==========================================
-    // THE FIX: Override fake image headers for video chunks
-    // ==========================================
+    // Override the fake image extensions
     if (isM3u8) {
         res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
+    } else if (isKey) {
+        res.setHeader("Content-Type", "application/octet-stream");
     } else if (targetUrl.includes('.jpg') || targetUrl.includes('.png') || targetUrl.includes('.ts')) {
         res.setHeader("Content-Type", "video/mp2t");
     }
@@ -971,10 +956,11 @@ app.get("/proxy", async (req, res) => {
     res.setHeader("Content-Length", buffer.byteLength);
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
-    res.setHeader(
-      "Access-Control-Allow-Headers",
-      "DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization"
-    );
+    res.setHeader("Access-Control-Allow-Headers", "DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization");
+
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
 
     res.send(Buffer.from(buffer));
   } catch (err) {

@@ -53,56 +53,35 @@ export default function VideoPlayer({
 	}, []);
 
 	// HLS setup (same proven logic, just removed native controls)
-	useEffect(() => {
-		const video = videoRef.current;
-		if (!video || !streams.length) return;
+useEffect(() => {
+        const video = videoRef.current;
+        if (!video || !streams.length) return;
 
-		destroyHls();
-		setIsReady(false);
-		setQualities([]);
+        destroyHls();
+        setIsReady(false);
+        setQualities([]);
 
-		const hlsStreams = streams.filter(
-			(s) => s.type === "hls" || s.url?.includes(".m3u8")
-		);
+        const hlsStreams = streams.filter(
+            (s) => s.type === "hls" || s.url?.includes(".m3u8")
+        );
 
-		if (Hls.isSupported() && hlsStreams.length > 0) {
-			let masterM3u8 = "#EXTM3U\n";
-			hlsStreams.forEach((s) => {
-				let bandwidth = 5000000;
-				let res = "1920x1080";
-				if (s.quality === "720p") { bandwidth = 2500000; res = "1280x720"; }
-				if (s.quality === "480p") { bandwidth = 1500000; res = "854x480"; }
-				if (s.quality === "360p") { bandwidth = 800000; res = "640x360"; }
+        if (Hls.isSupported() && hlsStreams.length > 0) {
+            const hls = new Hls({
+                maxBufferLength: 60,
+                maxMaxBufferLength: 120,
+            });
 
-				let pUrl = window.location.origin + "/proxy?url=" + encodeURIComponent(s.url);
-				if (s.referer) pUrl += "&referer=" + encodeURIComponent(s.referer);
+            // 1. THE FIX: Force an absolute URL so the Blob parser doesn't panic
+            let proxyUrl = window.location.origin + "/proxy?url=" + encodeURIComponent(hlsStreams[0].url);
+            if (hlsStreams[0].referer) proxyUrl += "&referer=" + encodeURIComponent(hlsStreams[0].referer);
 
-				masterM3u8 += `#EXT-X-STREAM-INF:BANDWIDTH=${bandwidth},RESOLUTION=${res}\n${pUrl}\n`;
-			});
+            // 2. Inject the exact Codecs so Chrome initializes the decoder
+            const masterM3u8 = `#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=1920x1080,CODECS="avc1.4d401e,mp4a.40.2"\n${proxyUrl}\n`;
+            const blob = new Blob([masterM3u8], { type: "application/vnd.apple.mpegurl" });
 
-			const blob = new Blob([masterM3u8], { type: "application/vnd.apple.mpegurl" });
-			const masterUrl = URL.createObjectURL(blob);
-			const streamReferer = hlsStreams[0]?.referer || "";
-
-			const hls = new Hls({
-				maxBufferLength: 60,
-				maxMaxBufferLength: 120,
-				fragLoadingTimeOut: 120000,
-				manifestLoadingTimeOut: 120000,
-				levelLoadingTimeOut: 120000,
-				fragLoadingMaxRetry: 10,
-				levelLoadingMaxRetry: 10,
-				xhrSetup: function (xhr, url) {
-					if (!url.startsWith("blob:") && !url.includes("/proxy?")) {
-						let proxyUrl = "/proxy?url=" + encodeURIComponent(url);
-						if (streamReferer) proxyUrl += "&referer=" + encodeURIComponent(streamReferer);
-						xhr.open("GET", proxyUrl, true);
-					}
-				},
-			});
-
-			hls.loadSource(masterUrl);
-			hls.attachMedia(video);
+            // 3. Load the Blob into HLS
+            hls.loadSource(URL.createObjectURL(blob));
+            hls.attachMedia(video);
 
 			hls.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
 				const q = data.levels.map((level, index) => ({
@@ -120,20 +99,27 @@ export default function VideoPlayer({
 			});
 
 			hls.on(Hls.Events.ERROR, (_, errData) => {
-				if (errData.fatal) {
-					switch (errData.type) {
-						case Hls.ErrorTypes.NETWORK_ERROR:
-							hls.startLoad();
-							break;
-						case Hls.ErrorTypes.MEDIA_ERROR:
-							hls.recoverMediaError();
-							break;
-						default:
-							hls.destroy();
-							break;
-					}
-				}
-			});
+                if (errData.fatal) {
+                    switch (errData.type) {
+                        case Hls.ErrorTypes.NETWORK_ERROR:
+                            hls.startLoad();
+                            break;
+                        case Hls.ErrorTypes.MEDIA_ERROR:
+                            mediaErrorCount++;
+                            if (mediaErrorCount <= 3) {
+                                console.warn("Media error, attempting recovery...");
+                                hls.recoverMediaError(); // Try to fix it
+                            } else {
+                                console.error("Too many media errors. Stopping to prevent infinite blinking loop.");
+                                hls.destroy(); // Give up instead of blinking forever
+                            }
+                            break;
+                        default:
+                            hls.destroy();
+                            break;
+                    }
+                }
+            });
 
 			hlsRef.current = hls;
 		} else if (video.canPlayType("application/vnd.apple.mpegurl") && hlsStreams.length > 0) {
