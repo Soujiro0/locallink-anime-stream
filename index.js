@@ -2,7 +2,11 @@ const express = require("express");
 const path = require("path");
 const zlib = require("zlib");
 const util = require("util");
+const NodeCache = require("node-cache");
+
 const gunzip = util.promisify(zlib.gunzip);
+
+const serverCache = new NodeCache({ stdTTL: 3600 }); // Default 1 hr TTL
 
 const app = express();
 
@@ -76,6 +80,13 @@ async function anilistQuery(query, variables = null) {
   const body = { query };
   if (variables) body.variables = variables;
 
+  const cacheKey = `anilist_${Buffer.from(JSON.stringify(body)).toString("base64")}`;
+  const cachedData = serverCache.get(cacheKey);
+  if (cachedData) {
+    console.log(`[CACHE HIT] AniList Query: ${query.substring(0, 30).replace(/\n/g, "")}...`);
+    return cachedData;
+  }
+
   const response = await fetch(ANILIST_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -86,7 +97,10 @@ async function anilistQuery(query, variables = null) {
     throw new Error("AniList query failed");
   }
   const resJson = await response.json();
-  return resJson.data || {};
+  const data = resJson.data || {};
+  
+  serverCache.set(cacheKey, data, 3600); // 1 Hour TTL
+  return data;
 }
 
 function injectSourceSlugs(data, anilistId) {
@@ -120,6 +134,13 @@ function injectSourceSlugs(data, anilistId) {
 }
 
 async function fetchRawEpisodes(anilistId) {
+  const cacheKey = `episodes_${anilistId}`;
+  const cachedData = serverCache.get(cacheKey);
+  if (cachedData) {
+    console.log(`[CACHE HIT] Episodes for AniList ID: ${anilistId}`);
+    return cachedData;
+  }
+
   const payload = {
     path: "episodes",
     method: "GET",
@@ -137,6 +158,8 @@ async function fetchRawEpisodes(anilistId) {
   const text = (await response.text()).trim();
   const data = await decodePipeResponse(text);
   deepTranslate(data);
+  
+  serverCache.set(cacheKey, data, 900); // 15 Mins TTL
   return data;
 }
 
@@ -254,6 +277,10 @@ const MEDIA_FULL_FIELDS = `
 
 
 // ─── Search & Suggestions ───────────────────────────────────────────────────
+
+app.get("/api/cache-stats", (req, res) => {
+  res.json(serverCache.getStats());
+});
 
 app.get("/api/search", async (req, res) => {
   try {
@@ -758,15 +785,25 @@ app.get("/api/episodes/:anilist_id", async (req, res) => {
 app.get("/api/skips/:mal_id/:episode", async (req, res) => {
   try {
     const { mal_id, episode } = req.params;
+    const cacheKey = `skips_${mal_id}_${episode}`;
+    const cachedData = serverCache.get(cacheKey);
+    if (cachedData) {
+      console.log(`[CACHE HIT] Skips for MAL ID: ${mal_id} Ep: ${episode}`);
+      return res.json(cachedData);
+    }
+
     const url = `https://api.aniskip.com/v2/skip-times/${mal_id}/${episode}?types[]=ed&types[]=op&types[]=mixed-op&types[]=mixed-ed&episodeLength=0`;
     const response = await fetch(url);
     if (!response.ok) {
       if (response.status === 404) {
-        return res.json({ found: false, results: [] });
+        const notFoundData = { found: false, results: [] };
+        serverCache.set(cacheKey, notFoundData, 86400); // 24 Hours TTL
+        return res.json(notFoundData);
       }
       return res.status(response.status).json({ detail: "AniSkip request failed" });
     }
     const data = await response.json();
+    serverCache.set(cacheKey, data, 86400); // 24 Hours TTL
     res.json(data);
   } catch (err) {
     res.status(500).json({ detail: err.message });
@@ -912,7 +949,7 @@ app.get("/proxy", async (req, res) => {
     const response = await fetch(targetUrl, { headers });
     let buffer = Buffer.from(await response.arrayBuffer());
 
-    console.log(`[Proxy] Status: ${response.status} | Length: ${buffer.byteLength} | URL: ${targetUrl.substring(0, 60)}...`);
+    // console.log(`[Proxy] Status: ${response.status} | Length: ${buffer.byteLength} | URL: ${targetUrl.substring(0, 60)}...`);
 
     const isKey = targetUrl.includes('.key');
     let isM3u8 = false;
@@ -980,7 +1017,7 @@ app.get("/proxy", async (req, res) => {
 
     // Strip PNG wrapper from disguised TS chunks
     if (buffer.length > 8 && buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47) {
-        console.log(`[PNG Strip] Found PNG signature for URL: ${targetUrl.substring(0, 60)}...`);
+        // console.log(`[PNG Strip] Found PNG signature for URL: ${targetUrl.substring(0, 60)}...`);
         let tsOffset = -1;
         for (let i = 0; i < Math.min(buffer.length, 100000); i++) {
             if (buffer[i] === 0x47 && buffer[i + 188] === 0x47 && buffer[i + 376] === 0x47) {
@@ -988,17 +1025,17 @@ app.get("/proxy", async (req, res) => {
                 break;
             }
         }
-        console.log(`[PNG Strip] tsOffset determined as: ${tsOffset}`);
+        // console.log(`[PNG Strip] tsOffset determined as: ${tsOffset}`);
         if (tsOffset !== -1) {
             buffer = buffer.slice(tsOffset);
             res.setHeader("Content-Type", "video/mp2t");
-            console.log(`[PNG Strip] Successfully sliced buffer. New length: ${buffer.byteLength}`);
+            // console.log(`[PNG Strip] Successfully sliced buffer. New length: ${buffer.byteLength}`);
         } else {
             // Debug: print the first 20 bytes if failed
-            console.log(`[PNG Strip] Failed to find TS sync! First 20 bytes:`, buffer.slice(0, 20));
+            // console.log(`[PNG Strip] Failed to find TS sync! First 20 bytes:`, buffer.slice(0, 20));
         }
     } else if (targetUrl.includes('/segment/')) {
-        console.log(`[PNG Strip] Segment did not start with PNG signature. First 4 bytes: ${buffer.length > 4 ? buffer.slice(0,4).toString('hex') : 'too short'}`);
+        // console.log(`[PNG Strip] Segment did not start with PNG signature. First 4 bytes: ${buffer.length > 4 ? buffer.slice(0,4).toString('hex') : 'too short'}`);
     }
 
     res.setHeader("Content-Length", buffer.byteLength);

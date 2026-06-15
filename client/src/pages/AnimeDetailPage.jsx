@@ -112,7 +112,7 @@ export default function AnimeDetailPage() {
             {/* Meta row */}
             <div className="flex flex-wrap items-center gap-3 text-sm">
               {anime.averageScore && (
-                <span className="flex items-center gap-1 text-green-400 font-bold">
+                <span className="flex items-center gap-1 text-yellow-400 font-bold">
                   <Star className="w-4 h-4 fill-current" /> {formatScore(anime.averageScore)}
                 </span>
               )}
