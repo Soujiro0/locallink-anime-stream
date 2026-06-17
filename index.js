@@ -1091,51 +1091,50 @@ if (require.main === module) {
     app.listen(defaultPort, "0.0.0.0", () => {
       console.log(`\n✅ Server successfully started on port ${defaultPort} (Non-interactive mode)`);
     });
-    return;
-  }
-
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
-
-  console.log("==========================================");
-  console.log(" Welcome to LocalLink Server! ");
-  console.log("==========================================");
-  console.log("Please specify the port to run the server on.");
-  console.log("Valid ports are generally between 1024 and 65535.");
-  console.log("------------------------------------------\n");
-
-  const promptForPort = () => {
-    rl.question("Enter port [Default: 3000]: ", async (answer) => {
-      const input = answer.trim();
-      const port = input === "" ? 3000 : parseInt(input, 10);
-
-      if (isNaN(port) || port < 1024 || port > 65535) {
-        console.log("❌ Invalid port. Please enter a valid number (1024 - 65535).\n");
-        return promptForPort();
-      }
-
-      console.log(`Checking if port ${port} is available...`);
-      const isFree = await checkPort(port);
-      
-      if (!isFree) {
-        console.log(`❌ Port ${port} is currently in use! Please choose another port.\n`);
-        return promptForPort();
-      }
-
-      app.listen(port, () => {
-        console.log("\n✅ Server successfully started!");
-        console.log("==========================================");
-        console.log("To access the platform, open your browser to:");
-        console.log(`➔  http://localhost:${port}`);
-        console.log("==========================================");
-      });
-      rl.close();
+  } else {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
     });
-  };
 
-  promptForPort();
+    console.log("==========================================");
+    console.log(" Welcome to LocalLink Server! ");
+    console.log("==========================================");
+    console.log("Please specify the port to run the server on.");
+    console.log("Valid ports are generally between 1024 and 65535.");
+    console.log("------------------------------------------\n");
+
+    const promptForPort = () => {
+      rl.question("Enter port [Default: 3000]: ", async (answer) => {
+        const input = answer.trim();
+        const port = input === "" ? 3000 : parseInt(input, 10);
+
+        if (isNaN(port) || port < 1024 || port > 65535) {
+          console.log("❌ Invalid port. Please enter a valid number (1024 - 65535).\n");
+          return promptForPort();
+        }
+
+        console.log(`Checking if port ${port} is available...`);
+        const isFree = await checkPort(port);
+        
+        if (!isFree) {
+          console.log(`❌ Port ${port} is currently in use! Please choose another port.\n`);
+          return promptForPort();
+        }
+
+        app.listen(port, () => {
+          console.log("\n✅ Server successfully started!");
+          console.log("==========================================");
+          console.log("To access the platform, open your browser to:");
+          console.log(`➔  http://localhost:${port}`);
+          console.log("==========================================");
+        });
+        rl.close();
+      });
+    };
+
+    promptForPort();
+  }
 }
 
 module.exports = app;

@@ -12,24 +12,27 @@ This guide will walk you through setting up and running LocalLink locally for de
 ## Local Development Setup
 
 1. **Clone the repository:**
+
    ```bash
-   git clone https://github.com/USER/LocalLink.git
-   cd LocalLink
+   git clone https://github.com/Soujiro0/locallink-anime-stream.git
+   cd locallink-anime-stream
    ```
 
 2. **Install Backend Dependencies:**
+
    ```bash
    npm install
    ```
 
 3. **Install Frontend Dependencies:**
+
    ```bash
    cd client
    npm install
    ```
 
 4. **Start the Development Servers:**
-   - For the **backend** (API), run `npm run dev` in the root folder. It will start on `http://localhost:3000`.
+   - For the **backend** (API), run `npm run start` in the root folder. It will start on `http://localhost:3000`.
    - For the **frontend** (React UI), run `npm run dev` in the `client` folder. It will start on `http://localhost:5173`.
 
 ## Production Build
@@ -37,14 +40,15 @@ This guide will walk you through setting up and running LocalLink locally for de
 To build the React application for production so that it is served natively by the Express server:
 
 ```bash
-cd client
-npm run build
+npm run build:client
 ```
 
 Then, you can start the optimized production server:
+
 ```bash
-node index.js
+npm run start
 ```
+
 The entire application will be accessible at `http://localhost:3000`.
 
 ## Building Standalone Executables (Linux / Windows)
@@ -52,13 +56,13 @@ The entire application will be accessible at `http://localhost:3000`.
 LocalLink uses `pkg` to bundle the Node.js server and React frontend into single, portable executable files that do not require Node.js to be installed on the target machine.
 
 1. Ensure you have built the React frontend:
+
    ```bash
-   cd client
-   npm run build
-   cd ..
+   npm run build:client
    ```
 
 2. Run the packaging script:
+
    ```bash
    npm run package
    ```
@@ -69,23 +73,26 @@ LocalLink uses `pkg` to bundle the Node.js server and React frontend into single
 
 ## Changing the Port
 
-By default, the server runs on port `3000`. If this port is in use, or if you prefer a different port, you can set the `PORT` environment variable before running the application:
+### Standalone Executables
+When running the compiled executables (`locallink-win.exe` or `locallink-linux`), the application will interactively prompt you to enter a port in the terminal:
 
-**Linux / macOS:**
-```bash
-PORT=8080 node index.js
+```
+==========================================
+ Welcome to LocalLink Server! 
+==========================================
+Please specify the port to run the server on.
+Valid ports are generally between 1024 and 65535.
+------------------------------------------
+
+Enter port [Default: 3000]: 
 ```
 
-**Windows (CMD):**
-```cmd
-set PORT=8080
-node index.js
-```
+### Development and Docker
+For development and Docker environments, you should configure the port using the `.env` file. Copy the `.env.example` file to `.env` and set your desired ports:
 
-**Windows (PowerShell):**
-```powershell
-$env:PORT=8080
-node index.js
+```env
+PORT=3000
+PROXY_PORT=3010
 ```
 
 ## Docker Setup
@@ -100,6 +107,7 @@ LocalLink provides a Dockerized environment for easy deployment. The provided `d
 3. The application will be built and accessible via the Nginx proxy at `http://localhost:3010`.
 
 To stop the containers, run:
+
 ```bash
 docker-compose down
 ```

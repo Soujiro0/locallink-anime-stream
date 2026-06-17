@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="https://via.placeholder.com/150?text=LocalLink+Logo" alt="LocalLink Logo" width="150" height="150">
+  <img src="./client/public/favicon.svg" alt="LocalLink Logo" width="150" height="150">
 
   # LocalLink - Anime Streaming Platform
 
@@ -15,7 +15,7 @@
   <img src="./screenshots/app_screenshot_6.png" alt="Desktop Landscape View" width="100%">
 </div>
 
-### Mobile / Portrait Views
+### Additional Views
 <div align="center">
   <img src="./screenshots/app_screenshot_1.png" alt="Screenshot 1" width="19%">
   <img src="./screenshots/app_screenshot_2.png" alt="Screenshot 2" width="19%">

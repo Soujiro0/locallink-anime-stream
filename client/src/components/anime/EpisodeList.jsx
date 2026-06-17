@@ -12,17 +12,16 @@ export default function EpisodeList({
   const [currentPage, setCurrentPage] = useState(1);
   const EPISODES_PER_PAGE = 50;
 
-  const providerNames = providers ? Object.keys(providers) : [];
+  const ALLOWED_PROVIDERS = ["ally", "bee", "kiwi"];
+  const providerNames = providers 
+    ? Object.keys(providers).filter(name => ALLOWED_PROVIDERS.includes(name.toLowerCase())) 
+    : [];
 
   // Sync with props
   useEffect(() => {
     if (initialProvider) setCurrentProvider(initialProvider);
     if (initialAudioType) setAudioType(initialAudioType);
   }, [initialProvider, initialAudioType]);
-
-  useEffect(() => {
-    console.log(providers);
-  }, [providers]);
 
   // Auto-select first provider with episodes if none selected
   if (!currentProvider && providerNames.length > 0) {

@@ -159,8 +159,7 @@ describe("Error Handling", () => {
   it("should return 500 when API fails", async () => {
     setupMockResponses(true);
 
-    const res = await request(app).get("/api/trending");
-    console.log("500 test response body:", res.body, "text:", res.text);
+    const res = await request(app).get("/api/trending?page=9999");
     expect(res.status).toBe(500);
     expect(res.body.detail).toBeDefined();
   });
