@@ -12,8 +12,6 @@ RUN npm install --include=dev
 COPY client/ ./
 ARG VITE_DEPLOY_ENV
 ENV VITE_DEPLOY_ENV=$VITE_DEPLOY_ENV
-ARG VITE_CLOUD_PROXY_URL
-ENV VITE_CLOUD_PROXY_URL=$VITE_CLOUD_PROXY_URL
 RUN npm run build
 
 # Stage 2: Production Server

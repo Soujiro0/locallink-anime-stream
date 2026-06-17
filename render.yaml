@@ -18,8 +18,6 @@ services:
         value: "true"
       - key: VITE_DEPLOY_ENV
         value: "CLOUD"
-      - key: VITE_CLOUD_PROXY_URL
-        value: "https://your-worker-name.your-subdomain.workers.dev"
 
       # Note: Render automatically injects its own PORT environment variable
       # and routes traffic to it. You usually don't need to hardcode it,

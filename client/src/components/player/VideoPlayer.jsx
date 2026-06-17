@@ -60,13 +60,6 @@ export default function VideoPlayer({
 	const getProxyUrl = useCallback((url, referer, absolute = false) => {
 		if (!url?.startsWith("http")) return url;
 		let proxyBase = absolute ? window.location.origin + "/proxy?url=" : "/proxy?url=";
-		if (import.meta.env.VITE_DEPLOY_ENV === "CLOUD" && import.meta.env.VITE_CLOUD_PROXY_URL) {
-			let cloudUrl = import.meta.env.VITE_CLOUD_PROXY_URL;
-			if (!cloudUrl.startsWith("http")) cloudUrl = "https://" + cloudUrl;
-			// Ensure no trailing slash
-			cloudUrl = cloudUrl.replace(/\/$/, "");
-			proxyBase = cloudUrl + "/proxy?url=";
-		}
 		let proxyUrl = proxyBase + encodeURIComponent(url);
 		if (referer) proxyUrl += "&referer=" + encodeURIComponent(referer);
 		return proxyUrl;
