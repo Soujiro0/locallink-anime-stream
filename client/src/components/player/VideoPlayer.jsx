@@ -57,6 +57,21 @@ export default function VideoPlayer({
 		}
 	}, []);
 
+	const getProxyUrl = useCallback((url, referer, absolute = false) => {
+		if (!url?.startsWith("http")) return url;
+		let proxyBase = absolute ? window.location.origin + "/proxy?url=" : "/proxy?url=";
+		if (import.meta.env.VITE_DEPLOY_ENV === "CLOUD") {
+			if (import.meta.env.VITE_CLOUD_PROXY_URL) {
+				proxyBase = import.meta.env.VITE_CLOUD_PROXY_URL + "/proxy?url=";
+			} else {
+				return url;
+			}
+		}
+		let proxyUrl = proxyBase + encodeURIComponent(url);
+		if (referer) proxyUrl += "&referer=" + encodeURIComponent(referer);
+		return proxyUrl;
+	}, []);
+
 
 	
 	// HLS setup (same proven logic, just removed native controls)
@@ -79,11 +94,7 @@ useEffect(() => {
             });
 
             // 1. THE FIX: Force an absolute URL so the Blob parser doesn't panic
-            let proxyUrl = hlsStreams[0].url;
-            if (import.meta.env.VITE_DEPLOY_ENV !== "CLOUD") {
-                proxyUrl = window.location.origin + "/proxy?url=" + encodeURIComponent(hlsStreams[0].url);
-                if (hlsStreams[0].referer) proxyUrl += "&referer=" + encodeURIComponent(hlsStreams[0].referer);
-            }
+            let proxyUrl = getProxyUrl(hlsStreams[0].url, hlsStreams[0].referer, true);
 
             // 2. Inject the exact Codecs so Chrome initializes the decoder
             const masterM3u8 = `#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=1920x1080,CODECS="avc1.4d401e,mp4a.40.2"\n${proxyUrl}\n`;
@@ -133,11 +144,7 @@ useEffect(() => {
 
 			hlsRef.current = hls;
 		} else if (video.canPlayType("application/vnd.apple.mpegurl") && hlsStreams.length > 0) {
-			let proxyUrl = hlsStreams[0].url;
-			if (import.meta.env.VITE_DEPLOY_ENV !== "CLOUD") {
-				proxyUrl = "/proxy?url=" + encodeURIComponent(hlsStreams[0].url);
-				if (hlsStreams[0].referer) proxyUrl += "&referer=" + encodeURIComponent(hlsStreams[0].referer);
-			}
+			let proxyUrl = getProxyUrl(hlsStreams[0].url, hlsStreams[0].referer, false);
 			video.src = proxyUrl;
 			video.addEventListener("loadedmetadata", () => {
 				setIsReady(true);
@@ -151,11 +158,7 @@ useEffect(() => {
 				setQualities(q);
 				setCurrentQuality(directStreams[0].quality);
 
-				let proxyUrl = directStreams[0].url;
-				if (import.meta.env.VITE_DEPLOY_ENV !== "CLOUD") {
-					proxyUrl = "/proxy?url=" + encodeURIComponent(directStreams[0].url);
-					if (directStreams[0].referer) proxyUrl += "&referer=" + encodeURIComponent(directStreams[0].referer);
-				}
+				let proxyUrl = getProxyUrl(directStreams[0].url, directStreams[0].referer, false);
 				video.src = proxyUrl;
 				setIsReady(true);
 			} else if (hlsStreams.length === 0) {
@@ -181,12 +184,8 @@ useEffect(() => {
 			track.label = sub.label || `Subtitle ${idx + 1}`;
 			track.srclang = sub.language || "en";
 			
-			let proxyUrl = sub.file;
-			if (sub.file?.startsWith("http") && import.meta.env.VITE_DEPLOY_ENV !== "CLOUD") {
-				proxyUrl = "/proxy?url=" + encodeURIComponent(sub.file);
-				const referer = streams.find(s => s.referer)?.referer || "";
-				if (referer) proxyUrl += "&referer=" + encodeURIComponent(referer);
-			}
+			const referer = streams.find(s => s.referer)?.referer || "";
+			let proxyUrl = getProxyUrl(sub.file, referer, false);
 			track.src = proxyUrl;
 			
 			if (idx === 0) track.default = true;

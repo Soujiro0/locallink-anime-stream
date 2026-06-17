@@ -5,6 +5,7 @@ services:
       dockerfile: ./docker/Dockerfile
       args:
         - VITE_DEPLOY_ENV=${VITE_DEPLOY_ENV:-LOCAL}
+        - VITE_CLOUD_PROXY_URL=${VITE_CLOUD_PROXY_URL:-""}
     container_name: locallink-anime-stream
     # Expose tells Docker to open the port internally, but keeps it hidden from your host machine
     expose:
@@ -14,6 +15,7 @@ services:
       - NO_PROMPT=${NO_PROMPT:-true}
       - PORT=${PORT:-3000}
       - VITE_DEPLOY_ENV=${VITE_DEPLOY_ENV:-LOCAL}
+      - VITE_CLOUD_PROXY_URL=${VITE_CLOUD_PROXY_URL:-""}
     restart: unless-stopped
     deploy:
       resources:
