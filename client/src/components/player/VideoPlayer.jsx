@@ -57,10 +57,8 @@ export default function VideoPlayer({
 		}
 	}, []);
 
-	// Detect if we are running in the local Docker environment
-    const isLocalhost = typeof window !== 'undefined' && 
-        (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
+	
 	// HLS setup (same proven logic, just removed native controls)
 useEffect(() => {
         const video = videoRef.current;
@@ -74,50 +72,22 @@ useEffect(() => {
             (s) => (s.type === "hls" || s.url?.includes(".m3u8")) && !!s.url
         );
 
-		// Helper function to determine the final URL based on environment
-        const getFinalUrl = (streamUrl, referer) => {
-            if (isLocalhost) {
-                // LOCAL MODE: Use your Express proxy to bypass browser CORS and IP blocks
-                let proxyUrl = window.location.origin + "/proxy?url=" + encodeURIComponent(streamUrl);
-                if (referer) proxyUrl += "&referer=" + encodeURIComponent(referer);
-                return proxyUrl;
-            } else {
-                // RENDER MODE: Connect directly to the CDN to bypass Cloudflare Data Center bans
-                // Note: We do not attach the referer here, as browsers handle that, 
-                // and we rely on the <meta name="referrer" content="no-referrer"> tag in index.html.
-                return streamUrl; 
-            }
-        };
-
         if (Hls.isSupported() && hlsStreams.length > 0) {
             const hls = new Hls({
                 maxBufferLength: 60,
                 maxMaxBufferLength: 120,
             });
 
-			const streamUrl = hlsStreams[0].url;
-            const finalUrl = getFinalUrl(streamUrl, hlsStreams[0].referer);
+            // 1. THE FIX: Force an absolute URL so the Blob parser doesn't panic
+            let proxyUrl = window.location.origin + "/proxy?url=" + encodeURIComponent(hlsStreams[0].url);
+            if (hlsStreams[0].referer) proxyUrl += "&referer=" + encodeURIComponent(hlsStreams[0].referer);
 
-            // // 1. THE FIX: Force an absolute URL so the Blob parser doesn't panic
-            // let proxyUrl = window.location.origin + "/proxy?url=" + encodeURIComponent(hlsStreams[0].url);
-            // if (hlsStreams[0].referer) proxyUrl += "&referer=" + encodeURIComponent(hlsStreams[0].referer);
-
-            // // 2. Inject the exact Codecs so Chrome initializes the decoder
-            // const masterM3u8 = `#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=1920x1080,CODECS="avc1.4d401e,mp4a.40.2"\n${proxyUrl}\n`;
-            // const blob = new Blob([masterM3u8], { type: "application/vnd.apple.mpegurl" });
-
-			if (isLocalhost) {
-                // Your existing robust local proxy Blob logic
-                const masterM3u8 = `#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=1920x1080,CODECS="avc1.4d401e,mp4a.40.2"\n${finalUrl}\n`;
-                const blob = new Blob([masterM3u8], { type: "application/vnd.apple.mpegurl" });
-                hls.loadSource(URL.createObjectURL(blob));
-            } else {
-                // Render Mode: Load the direct HLS stream
-                hls.loadSource(finalUrl);
-            }
+            // 2. Inject the exact Codecs so Chrome initializes the decoder
+            const masterM3u8 = `#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=1920x1080,CODECS="avc1.4d401e,mp4a.40.2"\n${proxyUrl}\n`;
+            const blob = new Blob([masterM3u8], { type: "application/vnd.apple.mpegurl" });
 
             // 3. Load the Blob into HLS
-            // hls.loadSource(URL.createObjectURL(blob));
+            hls.loadSource(URL.createObjectURL(blob));
             hls.attachMedia(video);
 
 			hls.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
@@ -135,7 +105,6 @@ useEffect(() => {
 				video.play().catch(() => {});
 			});
 
-			let mediaErrorCount = 0; // Initialize error counter missing in original code
 			hls.on(Hls.Events.ERROR, (_, errData) => {
                 if (errData.fatal) {
                     switch (errData.type) {
@@ -161,16 +130,14 @@ useEffect(() => {
 
 			hlsRef.current = hls;
 		} else if (video.canPlayType("application/vnd.apple.mpegurl") && hlsStreams.length > 0) {
-			// let proxyUrl = "/proxy?url=" + encodeURIComponent(hlsStreams[0].url);
-			// if (hlsStreams[0].referer) proxyUrl += "&referer=" + encodeURIComponent(hlsStreams[0].referer);
-			// video.src = proxyUrl;
-
-            video.src = getFinalUrl(hlsStreams[0].url, hlsStreams[0].referer);
-            video.addEventListener("loadedmetadata", () => {
-                setIsReady(true);
-                if (initialTime > 0) video.currentTime = initialTime;
-                video.play().catch(() => {});
-            });
+			let proxyUrl = "/proxy?url=" + encodeURIComponent(hlsStreams[0].url);
+			if (hlsStreams[0].referer) proxyUrl += "&referer=" + encodeURIComponent(hlsStreams[0].referer);
+			video.src = proxyUrl;
+			video.addEventListener("loadedmetadata", () => {
+				setIsReady(true);
+				if (initialTime > 0) video.currentTime = initialTime;
+				video.play().catch(() => {});
+			});
 		} else {
 			const directStreams = streams.filter((s) => s.type !== "hls" && !s.url?.includes(".m3u8") && !!s.url);
 			if (directStreams.length > 0) {
@@ -178,10 +145,9 @@ useEffect(() => {
 				setQualities(q);
 				setCurrentQuality(directStreams[0].quality);
 
-				// let proxyUrl = "/proxy?url=" + encodeURIComponent(directStreams[0].url);
-				// if (directStreams[0].referer) proxyUrl += "&referer=" + encodeURIComponent(directStreams[0].referer);
-				// video.src = proxyUrl;
-				video.src = getFinalUrl(directStreams[0].url, directStreams[0].referer);
+				let proxyUrl = "/proxy?url=" + encodeURIComponent(directStreams[0].url);
+				if (directStreams[0].referer) proxyUrl += "&referer=" + encodeURIComponent(directStreams[0].referer);
+				video.src = proxyUrl;
 				setIsReady(true);
 			} else if (hlsStreams.length === 0) {
 				console.error("No valid streams found.");
@@ -206,22 +172,13 @@ useEffect(() => {
 			track.label = sub.label || `Subtitle ${idx + 1}`;
 			track.srclang = sub.language || "en";
 			
-			// let proxyUrl = sub.file;
-			// if (sub.file?.startsWith("http")) {
-			// 	proxyUrl = "/proxy?url=" + encodeURIComponent(sub.file);
-			// 	const referer = streams.find(s => s.referer)?.referer || "";
-			// 	if (referer) proxyUrl += "&referer=" + encodeURIComponent(referer);
-			// }
-			let finalSubUrl = sub.file;
+			let proxyUrl = sub.file;
 			if (sub.file?.startsWith("http")) {
-                if (isLocalhost) {
-                    finalSubUrl = "/proxy?url=" + encodeURIComponent(sub.file);
-                    const referer = streams.find(s => s.referer)?.referer || "";
-                    if (referer) finalSubUrl += "&referer=" + encodeURIComponent(referer);
-                }
-                // If not localhost, leave it as the direct external URL
-            }
-			track.src = finalSubUrl;
+				proxyUrl = "/proxy?url=" + encodeURIComponent(sub.file);
+				const referer = streams.find(s => s.referer)?.referer || "";
+				if (referer) proxyUrl += "&referer=" + encodeURIComponent(referer);
+			}
+			track.src = proxyUrl;
 			
 			if (idx === 0) track.default = true;
 			video.appendChild(track);
