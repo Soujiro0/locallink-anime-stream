@@ -25,10 +25,7 @@ const MIRURO_PIPE_URL = "https://www.miruro.tv/api/secure/pipe";
 
 // ─── Utility Functions ───────────────────────────────────────────────────────
 
-function proxyDeepImages(obj) {
-  // Proxy removed — return data unchanged
-  return obj;
-}
+// ponytail: proxyDeepImages dead abstraction removed
 
 function translateId(encodedId) {
   try {
@@ -335,13 +332,13 @@ app.get("/api/search", async (req, res) => {
     const pageInfo = pageData.pageInfo || {};
 
     res.json(
-      proxyDeepImages({
+      {
         page: pageInfo.currentPage || page,
         perPage: pageInfo.perPage || perPage,
         total: pageInfo.total || 0,
         hasNextPage: pageInfo.hasNextPage || false,
         results: pageData.media || [],
-      }),
+      },
     );
   } catch (err) {
     res.status(500).json({ detail: err.message });
@@ -374,7 +371,7 @@ app.get("/api/suggestions", async (req, res) => {
       episodes: item.episodes,
     }));
 
-    res.json(proxyDeepImages({ suggestions: results }));
+    res.json({ suggestions: results });
   } catch (err) {
     res.status(500).json({ detail: err.message });
   }
@@ -459,13 +456,13 @@ app.get("/api/filter", async (req, res) => {
     const pageInfo = pageData.pageInfo || {};
 
     res.json(
-      proxyDeepImages({
+      {
         page: pageInfo.currentPage || page,
         perPage: pageInfo.perPage || perPage,
         total: pageInfo.total || 0,
         hasNextPage: pageInfo.hasNextPage || false,
         results: pageData.media || [],
-      }),
+      },
     );
   } catch (err) {
     res.status(500).json({ detail: err.message });
@@ -488,20 +485,20 @@ async function fetchCollection(sortType, statusStr, page, perPage) {
   const data = await anilistQuery(gql, { page, perPage });
   const pageData = data.Page || {};
   const pageInfo = pageData.pageInfo || {};
-  return proxyDeepImages({
+  return {
     page: pageInfo.currentPage || page,
     perPage: pageInfo.perPage || perPage,
     total: pageInfo.total || 0,
     hasNextPage: pageInfo.hasNextPage || false,
     results: pageData.media || [],
-  });
+  };
 }
 
 app.get("/api/spotlight", async (req, res) => {
   try {
     const gql = `query { Page(page: 1, perPage: 10) { media(sort: [TRENDING_DESC, POPULARITY_DESC], type: ANIME, isAdult: false) { ${MEDIA_LIST_FIELDS} } } }`;
     const data = await anilistQuery(gql);
-    res.json(proxyDeepImages({ results: data.Page?.media || [] }));
+    res.json({ results: data.Page?.media || [] });
   } catch (err) {
     res.status(500).json({ detail: err.message });
   }
@@ -591,13 +588,13 @@ app.get("/api/schedule", async (req, res) => {
       return entry;
     });
     res.json(
-      proxyDeepImages({
+      {
         page: pageData.pageInfo?.currentPage || page,
         perPage: pageData.pageInfo?.perPage || perPage,
         total: pageData.pageInfo?.total || 0,
         hasNextPage: pageData.pageInfo?.hasNextPage || false,
         results: results,
-      }),
+      },
     );
   } catch (err) {
     res.status(500).json({ detail: err.message });
@@ -650,7 +647,7 @@ app.get("/api/schedule/week", async (req, res) => {
       page++;
     }
 
-    res.json(proxyDeepImages({ results: allResults }));
+    res.json({ results: allResults });
   } catch (err) {
     res.status(500).json({ detail: err.message });
   }
@@ -665,7 +662,7 @@ app.get("/api/info/:anilist_id", async (req, res) => {
       id: parseInt(req.params.anilist_id),
     });
     if (!data.Media) return res.status(404).json({ detail: "Anime not found" });
-    res.json(proxyDeepImages(data.Media));
+    res.json(data.Media);
   } catch (err) {
     res.status(500).json({ detail: err.message });
   }
@@ -697,13 +694,13 @@ app.get("/api/anime/:anilist_id/characters", async (req, res) => {
 
     const chars = data.Media.characters || {};
     res.json(
-      proxyDeepImages({
+      {
         page: chars.pageInfo?.currentPage || page,
         perPage: chars.pageInfo?.perPage || perPage,
         total: chars.pageInfo?.total || 0,
         hasNextPage: chars.pageInfo?.hasNextPage || false,
         characters: chars.edges || [],
-      }),
+      },
     );
   } catch (err) {
     res.status(500).json({ detail: err.message });
@@ -724,11 +721,11 @@ app.get("/api/anime/:anilist_id/relations", async (req, res) => {
     });
     if (!data.Media) return res.status(404).json({ detail: "Anime not found" });
     res.json(
-      proxyDeepImages({
+      {
         id: data.Media.id,
         title: data.Media.title,
         relations: data.Media.relations?.edges || [],
-      }),
+      },
     );
   } catch (err) {
     res.status(500).json({ detail: err.message });
@@ -758,13 +755,13 @@ app.get("/api/anime/:anilist_id/recommendations", async (req, res) => {
 
     const recs = data.Media.recommendations || {};
     res.json(
-      proxyDeepImages({
+      {
         page: recs.pageInfo?.currentPage || page,
         perPage: recs.pageInfo?.perPage || perPage,
         total: recs.pageInfo?.total || 0,
         hasNextPage: recs.pageInfo?.hasNextPage || false,
         recommendations: recs.nodes || [],
-      }),
+      },
     );
   } catch (err) {
     res.status(500).json({ detail: err.message });
@@ -777,7 +774,7 @@ app.get("/api/episodes/:anilist_id", async (req, res) => {
   try {
     const anilistId = parseInt(req.params.anilist_id);
     const data = await fetchRawEpisodes(anilistId);
-    res.json(proxyDeepImages(injectSourceSlugs(data, anilistId)));
+    res.json(injectSourceSlugs(data, anilistId));
   } catch (err) {
     res.status(500).json({ detail: err.message });
   }
@@ -843,7 +840,7 @@ app.get("/api/sources", async (req, res) => {
 
     const text = (await response.text()).trim();
     const data = await decodePipeResponse(text);
-    res.json(proxyDeepImages(data));
+    res.json(data);
   } catch (err) {
     res.status(500).json({ detail: err.message });
   }
@@ -897,7 +894,14 @@ app.get("/api/watch/:provider/:anilist_id/:category/:slug", async (req, res) => 
 
     const text = (await response.text()).trim();
     const finalData = await decodePipeResponse(text);
-    res.json(proxyDeepImages(finalData));
+
+    // ponytail: fix stale CDN Referer header for ALLY (AllManga) streams
+    if (provider.toLowerCase() === 'ally' || provider.toLowerCase() === 'allmanga' || finalData.headers?.Referer?.includes('fallanime')) {
+      if (!finalData.headers) finalData.headers = {};
+      finalData.headers.Referer = "https://allmanga.to/";
+    }
+
+    res.json(finalData);
   } catch (err) {
     res.status(500).json({ detail: err.message });
   }
@@ -924,6 +928,11 @@ app.get("/proxy", async (req, res) => {
     // Force referer for BEE CDNs
     if (targetUrl.includes('nekostream.site') || targetUrl.includes('ipstatp.com')) {
         customReferer = 'https://vidtube.site/';
+    }
+
+    // ponytail: force ALLY (AllManga) Referer validation
+    if (targetUrl.includes('wixmp.com') || targetUrl.includes('203.188.') || targetUrl.includes('allmanga') || customReferer?.includes('fallanime')) {
+        customReferer = 'https://allmanga.to/';
     }
 
     const refererHeader = customReferer ? customReferer : new URL(targetUrl).origin + "/";
