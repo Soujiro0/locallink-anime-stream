@@ -74,20 +74,22 @@ LocalLink uses `pkg` to bundle the Node.js server and React frontend into single
 ## Changing the Port
 
 ### Standalone Executables
+
 When running the compiled executables (`locallink-win.exe` or `locallink-linux`), the application will interactively prompt you to enter a port in the terminal:
 
 ```
 ==========================================
- Welcome to LocalLink Server! 
+ Welcome to LocalLink Server!
 ==========================================
 Please specify the port to run the server on.
 Valid ports are generally between 1024 and 65535.
 ------------------------------------------
 
-Enter port [Default: 3000]: 
+Enter port [Default: 3000]:
 ```
 
 ### Development and Docker
+
 For development and Docker environments, you should configure the port using the `.env` file. Copy the `.env.example` file to `.env` and set your desired ports:
 
 ```env
@@ -102,12 +104,16 @@ LocalLink provides a Dockerized environment for easy deployment. The provided `d
 1. Ensure Docker and Docker Compose are installed on your machine.
 2. From the root directory of the project, run:
    ```bash
-   docker-compose up -d
+   docker compose build
+   ```
+   then:
+   ```bash
+   docker compose up -d
    ```
 3. The application will be built and accessible via the Nginx proxy at `http://localhost:3010`.
 
 To stop the containers, run:
 
 ```bash
-docker-compose down
+docker compose down
 ```

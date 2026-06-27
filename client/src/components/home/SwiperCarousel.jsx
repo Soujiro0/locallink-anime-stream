@@ -66,10 +66,10 @@ export default function SwiperCarousel({ title, anime = [], loading = false, ren
           freeMode={true}
           slidesPerView="auto"
           spaceBetween={16}
-          className="!overflow-hidden !py-1 rounded-lg"
+          className="overflow-hidden! !py-1! rounded-lg"
         >
           {anime.map((item) => (
-            <SwiperSlide key={item.id} className="!w-auto shrink-0 transition-transform duration-300">
+            <SwiperSlide key={item.id} className="w-auto! shrink-0 transition-transform duration-300">
               <div className="w-32 sm:w-36 lg:w-40">
                 {renderItem ? renderItem(item) : <AnimeCard anime={item} />}
               </div>
