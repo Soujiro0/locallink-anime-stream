@@ -1,7 +1,7 @@
 # LocalLink Anime Stream - Session Memory & History Summary
 
 ## Session Overview
-In this session, we upgraded the **LocalLink Anime Stream** web application and backend from version `1.0.0` to `1.2.0`. Work focused on UI/UX redesigns, video player feature expansion, Windows executable resource manipulation, Docker build improvements, and codebase decluttering.
+In this session, we upgraded the **LocalLink Anime Stream** web application and backend from version `1.0.0` to `1.1.0`. Work focused on UI/UX redesigns, video player feature expansion, Windows executable resource manipulation, Docker build improvements, and codebase decluttering.
 
 ---
 
@@ -21,7 +21,12 @@ In this session, we upgraded the **LocalLink Anime Stream** web application and 
 ### 3. Executable Packaging & Tooling (`resedit`)
 - **Icon Stamping Fix**: Replaced `rcedit` with `resedit` in [set-icon.js](file:///d:/Projects/locallink-anime-stream/set-icon.js). Configured icon parsing to filter out oversized uncompressed bitmap frames (`width !== 0`) and generated resources with `{ noGrow: true }`. This stamped the Windows executable (`locallink-win.exe`) successfully without corrupting `pkg` virtual filesystem payloads.
 
-### 4. Audit, Docker & Versioning (`v1.2.0`)
+### 4. Audit, Docker & Versioning (`v1.1.0`)
 - **Ponytail Audit Cleanup**: Executed `/ponytail-audit` and cut ~162 lines of dead code and unused dependencies (removed `rcedit`, deprecated `AnimeCarousel.jsx`, unused `Modal.jsx`, and dead `SkeletonRow` exports).
 - **Docker Image Tagging**: Updated [docker-compose.yml](file:///d:/Projects/locallink-anime-stream/docker-compose.yml) to tag the built app container with `:latest` (`image: locallink-anime-stream-app:latest`).
-- **Release Versioning**: Bumped version numbers to `1.2.0` in root `package.json`, `client/package.json`, and documented all changes in [CHANGELOG.md](file:///d:/Projects/locallink-anime-stream/CHANGELOG.md).
+- **Release Versioning**: Bumped version numbers to `1.1.0` in root `package.json`, `client/package.json`, and documented all changes in [CHANGELOG.md](file:///d:/Projects/locallink-anime-stream/CHANGELOG.md).
+
+### 5. Docker & Runtime Memory/CPU Optimization
+- **Streaming Pipeline Proxy**: Refactored [proxyController.js](file:///d:/Projects/locallink-anime-stream/src/controllers/proxyController.js) from buffering full video segments into RAM (`await response.arrayBuffer()`) to streaming directly via Web Streams & Node `pipeline`. Added abort signal hooks so client disconnection stops upstream network fetches instantly.
+- **NodeCache Zero-Cloning & Capping**: Configured [cache.js](file:///d:/Projects/locallink-anime-stream/src/config/cache.js) with `useClones: false` and `maxKeys: 500` to eliminate V8 serialization CPU cycles and prevent heap growth. Updated [streamController.js](file:///d:/Projects/locallink-anime-stream/src/controllers/streamController.js) to preserve `ep.rawId` for idempotent slug injections.
+- **V8 Engine Tuning**: Configured `NODE_OPTIONS=--max-old-space-size=128` and command `--optimize-for-size` in [docker-compose.yml](file:///d:/Projects/locallink-anime-stream/docker-compose.yml) and [Dockerfile](file:///d:/Projects/locallink-anime-stream/docker/Dockerfile), and optimized Nginx Alpine buffer allocation sizes and static file browser caching in [nginx.conf](file:///d:/Projects/locallink-anime-stream/docker/nginx.conf).

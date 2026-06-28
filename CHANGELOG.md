@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-06-28
+
+### Added
+
+- **Streaming Pipeline Proxy**: Refactored the video streaming reverse proxy (`proxyController.js`) to use native Node.js pipelines and Web Streams, streaming binary chunks directly without buffering full video segments into RAM.
+- **V8 Engine Tuning**: Configured `NODE_OPTIONS=--max-old-space-size=128` and passed `--optimize-for-size` directly to node command in `Dockerfile` and `docker-compose.yml` to minimize idle container memory footprint.
+- **Nginx & Express Buffer Optimization**: Configured Nginx Alpine buffer sizes, enabled aggressive static asset 1-year browser caching, disabled Express `x-powered-by` headers, and added socket keep-alive timeouts (`keepAliveTimeout = 65000`).
+- **Interactive Swiper Carousels**: Replaced static overflow scrolling containers across Home Page and Watch Page recommendations with responsive navigation arrow carousels.
+- **Top Rankings Sidebar**: Embedded interactive rankings sidebar alongside anime details on the Watch Page.
+- **YouTube-Style Theater Mode**: Added video player theater mode expansion across full viewport width.
+
+### Changed
+
+- **NodeCache Zero-Cloning & Capping**: Set `useClones: false` and `maxKeys: 500` in server memory caching to eliminate V8 serialization CPU cycles and prevent unbounded heap growth. Updated `streamController.js` to preserve `rawId` references for idempotent slug manipulation.
+- **Audit & Dead Code Removal**: Executed repository cleanup cutting ~162 lines of dead code, unused modals, and deprecated carousel exports.
+
 ## [1.0.0] - 2026-06-27
 
 ### Added

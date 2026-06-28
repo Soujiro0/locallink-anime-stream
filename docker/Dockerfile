@@ -33,7 +33,8 @@ COPY --from=builder /app/client/dist ./client/dist
 ENV NODE_ENV=production
 ENV NO_PROMPT=true
 ENV PORT=3000
+ENV NODE_OPTIONS=--max-old-space-size=128
 
 EXPOSE 3000
 
-CMD ["node", "index.js"]
+CMD ["node", "--optimize-for-size", "index.js"]

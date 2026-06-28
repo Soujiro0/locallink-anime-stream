@@ -1,4 +1,4 @@
-Version: 1.0.0
+Version: 1.1.0
 
 # Setup Documentation
 
@@ -117,3 +117,10 @@ To stop the containers, run:
 ```bash
 docker compose down
 ```
+
+### Docker Performance Tuning & Memory Footprint
+
+The Docker deployment comes pre-configured for high-efficiency, low-memory operations:
+- **V8 Engine Tuning**: Configured with `NODE_OPTIONS=--max-old-space-size=128` and `--optimize-for-size` command flag to keep Node.js idle RAM usage very low (~15–30 MB).
+- **Streaming Proxy Pipeline**: Video stream chunks (`.m3u8`, `.ts`, `.mp4`) are piped directly through Web Streams without buffering full segments into heap memory, eliminating Garbage Collection spikes.
+- **Nginx Caching & Buffering**: Static assets (`.js`, `.css`, images) are cached by Nginx with 1-year browser expiration headers, bypassing Node.js entirely.

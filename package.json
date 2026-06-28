@@ -1,12 +1,12 @@
 {
   "name": "locallink",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "",
   "main": "index.js",
   "bin": "index.js",
   "scripts": {
     "test": "vitest run",
-    "start": "node index.js",
+    "start": "node --optimize-for-size index.js",
     "build:client": "cd client && npm install && npm run build",
     "package": "pkg . --targets node18-linux-x64,node18-win-x64 --out-path dist-bin",
     "postpackage": "node set-icon.js",

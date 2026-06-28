@@ -1,3 +1,6 @@
+const { Readable } = require("stream");
+const { pipeline } = require("stream/promises");
+
 exports.proxy = async (req, res) => {
   try {
     const targetUrl = req.query.url;
@@ -37,24 +40,45 @@ exports.proxy = async (req, res) => {
       headers["Range"] = req.headers.range;
     }
 
-    const response = await fetch(targetUrl, { headers });
-    let buffer = Buffer.from(await response.arrayBuffer());
+    const controller = new AbortController();
+    req.on("close", () => {
+      if (!res.writableEnded) {
+        controller.abort();
+      }
+    });
 
-    const isKey = targetUrl.includes('.key');
-    let isM3u8 = false;
-    
-    if (!isKey && buffer.byteLength > 7) {
-        const header = Buffer.from(buffer.slice(0, 7)).toString('utf-8');
-        if (header === '#EXTM3U') {
-            isM3u8 = true;
-        }
+    const response = await fetch(targetUrl, { headers, signal: controller.signal });
+    if (!response.ok && response.status !== 206) {
+      res.status(response.status);
+      const errText = await response.text().catch(() => "Proxy error");
+      return res.send(errText);
     }
 
+    const reader = response.body.getReader();
+    const { done, value: firstChunk } = await reader.read();
+
+    if (done || !firstChunk) {
+      res.status(response.status).end();
+      return;
+    }
+
+    const isKey = targetUrl.includes('.key');
+    const isM3u8 =
+      targetUrl.includes('.m3u8') ||
+      (!isKey && firstChunk.length >= 7 && Buffer.from(firstChunk.slice(0, 7)).toString('utf-8') === '#EXTM3U') ||
+      response.headers.get("content-type")?.toLowerCase().includes("mpegurl") ||
+      response.headers.get("content-type")?.toLowerCase().includes("m3u8");
+
     if (isM3u8) {
-      let text = Buffer.from(buffer).toString("utf-8");
+      const chunks = [firstChunk];
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value) chunks.push(value);
+      }
+      let text = Buffer.concat(chunks).toString("utf-8");
       const baseUrl = new URL(targetUrl);
       const lines = text.split('\n');
-      
       const proxyBase = `/proxy?url=`; 
 
       for (let i = 0; i < lines.length; i++) {
@@ -62,7 +86,6 @@ exports.proxy = async (req, res) => {
         if (line && !line.startsWith('#')) {
           let absoluteUrl = line.startsWith('http') ? line : new URL(line, baseUrl).href;
           lines[i] = proxyBase + encodeURIComponent(absoluteUrl) + "&referer=" + encodeURIComponent(refererHeader);
-          
         } else if (line.includes('URI="')) {
           const match = line.match(/URI="([^"]+)"/);
           if (match) {
@@ -75,13 +98,44 @@ exports.proxy = async (req, res) => {
           }
         }
       }
-      text = lines.join('\n');
-      buffer = Buffer.from(text, "utf-8");
+      const outBuffer = Buffer.from(lines.join('\n'), "utf-8");
+
+      res.status(response.status);
+      res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
+      res.setHeader("Content-Length", outBuffer.byteLength);
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
+      res.setHeader("Access-Control-Allow-Headers", "DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization");
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+      res.setHeader("Pragma", "no-cache");
+      res.setHeader("Expires", "0");
+      return res.send(outBuffer);
+    }
+
+    let chunkToWrite = firstChunk;
+    let slicedFakePng = false;
+
+    if (chunkToWrite.length > 8 && chunkToWrite[0] === 0x89 && chunkToWrite[1] === 0x50 && chunkToWrite[2] === 0x4E && chunkToWrite[3] === 0x47) {
+      let tsOffset = -1;
+      for (let i = 0; i < Math.min(chunkToWrite.length, 100000); i++) {
+        if (chunkToWrite[i] === 0x47 && chunkToWrite[i + 188] === 0x47 && chunkToWrite[i + 376] === 0x47) {
+          tsOffset = i;
+          break;
+        }
+      }
+      if (tsOffset !== -1) {
+        chunkToWrite = chunkToWrite.slice(tsOffset);
+        slicedFakePng = true;
+      }
     }
 
     res.status(response.status);
 
     const headersToKeep = ["content-type", "accept-ranges", "content-range"];
+    if (!slicedFakePng) {
+      headersToKeep.push("content-length");
+    }
+
     response.headers.forEach((val, key) => {
       const lowerKey = key.toLowerCase();
       if (headersToKeep.includes(lowerKey)) {
@@ -89,42 +143,41 @@ exports.proxy = async (req, res) => {
       }
     });
 
-    if (isM3u8) {
-        res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
+    if (slicedFakePng || targetUrl.includes('.jpg') || targetUrl.includes('.png') || targetUrl.includes('.ts')) {
+      res.setHeader("Content-Type", "video/mp2t");
     } else if (isKey) {
-        res.setHeader("Content-Type", "application/octet-stream");
-    } else if (targetUrl.includes('.jpg') || targetUrl.includes('.png') || targetUrl.includes('.ts')) {
-        res.setHeader("Content-Type", "video/mp2t");
+      res.setHeader("Content-Type", "application/octet-stream");
     } else if (targetUrl.includes('.vtt')) {
-        res.setHeader("Content-Type", "text/vtt");
+      res.setHeader("Content-Type", "text/vtt");
     }
 
-    if (buffer.length > 8 && buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47) {
-        let tsOffset = -1;
-        for (let i = 0; i < Math.min(buffer.length, 100000); i++) {
-            if (buffer[i] === 0x47 && buffer[i + 188] === 0x47 && buffer[i + 376] === 0x47) {
-                tsOffset = i;
-                break;
-            }
-        }
-        if (tsOffset !== -1) {
-            buffer = buffer.slice(tsOffset);
-            res.setHeader("Content-Type", "video/mp2t");
-        }
-    }
-
-    res.setHeader("Content-Length", buffer.byteLength);
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization");
-
     res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
     res.setHeader("Pragma", "no-cache");
     res.setHeader("Expires", "0");
 
-    res.send(Buffer.from(buffer));
+    async function* streamGenerator() {
+      yield chunkToWrite;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value) yield value;
+      }
+    }
+
+    await pipeline(Readable.from(streamGenerator()), res).catch((err) => {
+      if (err.code !== "ERR_STREAM_PREMATURE_CLOSE" && err.name !== "AbortError") {
+        console.error("Pipeline streaming error:", err.message);
+      }
+    });
   } catch (err) {
-    console.error("Proxy error:", err.message);
-    res.status(500).send("Proxy error");
+    if (err.name !== "AbortError" && err.code !== "ERR_STREAM_PREMATURE_CLOSE") {
+      console.error("Proxy error:", err.message);
+      if (!res.headersSent) {
+        res.status(500).send("Proxy error");
+      }
+    }
   }
 };

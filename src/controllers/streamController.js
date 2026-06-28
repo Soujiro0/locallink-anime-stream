@@ -22,7 +22,8 @@ function injectSourceSlugs(data, anilistId) {
       for (const ep of epList) {
         if (typeof ep !== "object" || ep === null) continue;
         if (ep.id && ep.number !== undefined) {
-          const origId = ep.id;
+          if (!ep.rawId) ep.rawId = ep.id;
+          const origId = ep.rawId;
           const prefix = origId.includes(":") ? origId.split(":")[0] : origId;
           ep.id = `watch/${providerName}/${anilistId}/${category}/${prefix}-${ep.number}`;
         }
@@ -149,7 +150,7 @@ exports.watch = async (req, res) => {
 
     let targetId = null;
     for (const ep of epList) {
-      const origId = ep.id || "";
+      const origId = ep.rawId || ep.id || "";
       const prefix = origId.includes(":") ? origId.split(":")[0] : origId;
       const generated = `${prefix}-${ep.number}`;
       if (generated === slug) {

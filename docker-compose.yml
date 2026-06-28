@@ -12,15 +12,17 @@ services:
       - NODE_ENV=${NODE_ENV:-production}
       - NO_PROMPT=${NO_PROMPT:-true}
       - PORT=${PORT:-3000}
+      - NODE_OPTIONS=--max-old-space-size=128
+    command: node --optimize-for-size index.js
     restart: unless-stopped
     deploy:
       resources:
         limits:
           cpus: '0.50'
-          memory: 512M
+          memory: 256M
         reservations: # ponytail: min required resource reserves
-          cpus: '0.10'
-          memory: 128M
+          cpus: '0.05'
+          memory: 64M
 
   # The new Reverse Proxy
   proxy:
@@ -37,7 +39,7 @@ services:
       resources:
         limits:
           cpus: '0.25'
-          memory: 128M
+          memory: 64M
         reservations:
-          cpus: '0.05'
-          memory: 32M
+          cpus: '0.02'
+          memory: 16M

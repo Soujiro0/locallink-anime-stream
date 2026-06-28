@@ -5,9 +5,14 @@ const apiRoutes = require("./src/routes/apiRoutes");
 const proxyController = require("./src/controllers/proxyController");
 
 const app = express();
+app.disable("x-powered-by");
 
-// Serve production build if exists
-app.use(express.static(path.join(__dirname, "client", "dist")));
+// Serve production build if exists with static asset caching
+app.use(express.static(path.join(__dirname, "client", "dist"), {
+  maxAge: "1y",
+  etag: true,
+  index: false,
+}));
 app.use(express.json());
 
 // Mount API Routes
@@ -18,6 +23,7 @@ app.get("/proxy", proxyController.proxy);
 
 // SPA fallback — serve React app for all other routes
 app.use((req, res) => {
+  res.setHeader("Cache-Control", "no-cache");
   res.sendFile(path.join(__dirname, "client", "dist", "index.html"));
 });
 
@@ -47,9 +53,11 @@ if (require.main === module) {
   const defaultPort = parseInt(process.env.PORT, 10) || 3000;
 
   if (process.env.NO_PROMPT === "true") {
-    app.listen(defaultPort, "0.0.0.0", () => {
+    const server = app.listen(defaultPort, "0.0.0.0", () => {
       console.log(`\n✅ Server successfully started on port ${defaultPort} (Non-interactive mode)`);
     });
+    server.keepAliveTimeout = 65000;
+    server.headersTimeout = 66000;
   } else {
     const rl = readline.createInterface({
       input: process.stdin,
@@ -81,13 +89,15 @@ if (require.main === module) {
           return promptForPort();
         }
 
-        app.listen(port, () => {
+        const server = app.listen(port, () => {
           console.log("\n✅ Server successfully started!");
           console.log("==========================================");
           console.log("To access the platform, open your browser to:");
           console.log(`➔  http://localhost:${port}`);
           console.log("==========================================");
         });
+        server.keepAliveTimeout = 65000;
+        server.headersTimeout = 66000;
         rl.close();
       });
     };
