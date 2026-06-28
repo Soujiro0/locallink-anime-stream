@@ -1,15 +1,8 @@
 # Changelog
 
-All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
+All notable changes to this project will be documented in this file.
 
-## [1.1.0](https://github.com/Soujiro0/locallink-anime-stream/compare/v1.0.0...v1.1.0) (2026-06-28)
-
-
-### Bug Fixes
-
-* error command in node ([184af56](https://github.com/Soujiro0/locallink-anime-stream/commit/184af565280692a504116ac3e29ff38a5fce84cf))
-
-## [1.1.0] - 2026-06-28
+## [1.1.0] (2026-06-28)
 
 ### Added
 
@@ -25,7 +18,7 @@ All notable changes to this project will be documented in this file. See [standa
 - **NodeCache Zero-Cloning & Capping**: Set `useClones: false` and `maxKeys: 500` in server memory caching to eliminate V8 serialization CPU cycles and prevent unbounded heap growth. Updated `streamController.js` to preserve `rawId` references for idempotent slug manipulation.
 - **Audit & Dead Code Removal**: Executed repository cleanup cutting ~162 lines of dead code, unused modals, and deprecated carousel exports.
 
-## [1.0.0] - 2026-06-27
+## [1.0.0] (2026-06-27)
 
 ### Added
 
