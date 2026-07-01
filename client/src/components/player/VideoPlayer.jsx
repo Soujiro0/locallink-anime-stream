@@ -88,15 +88,8 @@ useEffect(() => {
                 maxMaxBufferLength: 120,
             });
 
-            // 1. THE FIX: Force an absolute URL so the Blob parser doesn't panic
-            let proxyUrl = getProxyUrl(hlsStreams[0].url, hlsStreams[0].referer, true);
-
-            // 2. Inject the exact Codecs so Chrome initializes the decoder
-            const masterM3u8 = `#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=1920x1080,CODECS="avc1.4d401e,mp4a.40.2"\n${proxyUrl}\n`;
-            const blob = new Blob([masterM3u8], { type: "application/vnd.apple.mpegurl" });
-
-            // 3. Load the Blob into HLS
-            hls.loadSource(URL.createObjectURL(blob));
+            let proxyUrl = getProxyUrl(hlsStreams[0].url, hlsStreams[0].referer, false);
+            hls.loadSource(proxyUrl);
             hls.attachMedia(video);
 
 			hls.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
@@ -137,19 +130,15 @@ useEffect(() => {
 
                                 console.warn("403 Forbidden on chunk, retrying with adaptive segment proxying...");
                                 let fallbackProxyUrl = getProxyUrl(hlsStreams[currentStreamIndex].url, hlsStreams[currentStreamIndex].referer, false) + "&proxyChunks=true";
-                                const fallbackMaster = `#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=1920x1080,CODECS="avc1.4d401e,mp4a.40.2"\n${fallbackProxyUrl}\n`;
-                                const fallbackBlob = new Blob([fallbackMaster], { type: "application/vnd.apple.mpegurl" });
-                                hls.loadSource(URL.createObjectURL(fallbackBlob));
+                                hls.loadSource(fallbackProxyUrl);
                             } else if (networkErrorCount <= 3) {
                                 // Try the next available HLS stream before giving up
                                 currentStreamIndex++;
                                 if (currentStreamIndex < hlsStreams.length) {
                                     console.warn(`Stream ${currentStreamIndex - 1} failed, trying stream ${currentStreamIndex}...`);
                                     networkErrorCount = 0; // Reset for the new stream
-                                    let nextProxyUrl = getProxyUrl(hlsStreams[currentStreamIndex].url, hlsStreams[currentStreamIndex].referer, true);
-                                    const nextMaster = `#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=1920x1080,CODECS="avc1.4d401e,mp4a.40.2"\n${nextProxyUrl}\n`;
-                                    const nextBlob = new Blob([nextMaster], { type: "application/vnd.apple.mpegurl" });
-                                    hls.loadSource(URL.createObjectURL(nextBlob));
+                                    let nextProxyUrl = getProxyUrl(hlsStreams[currentStreamIndex].url, hlsStreams[currentStreamIndex].referer, false);
+                                    hls.loadSource(nextProxyUrl);
                                 } else {
                                     hls.startLoad();
                                 }

@@ -7,7 +7,6 @@ const BROWSER_HEADERS = {
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36 Edg/136.0.0.0",
   "Accept": "*/*",
   "Accept-Language": "en-US,en;q=0.9",
-  "Accept-Encoding": "gzip, deflate, br",
   "Sec-Ch-Ua": '"Microsoft Edge";v="136", "Chromium";v="136", "Not.A/Brand";v="99"',
   "Sec-Ch-Ua-Mobile": "?0",
   "Sec-Ch-Ua-Platform": '"Windows"',
@@ -30,9 +29,6 @@ const ORIGIN_WHITELIST = [
 const DEFAULT_STRICT_CDNS = ["nekostream", "owocdn", "vidtube", "wixmp", "mt.", "203.188."];
 
 function resolveRefererForUrl(targetUrl, customReferer) {
-  if (customReferer && customReferer.startsWith('http')) {
-    return customReferer;
-  }
   if (targetUrl.includes('owocdn.top') || targetUrl.includes('uwucdn.top') || targetUrl.includes('bigdreamsmalldih.site') || targetUrl.includes('kwik.') || targetUrl.includes('pahe.')) {
     return 'https://kwik.cx/';
   }
@@ -41,6 +37,9 @@ function resolveRefererForUrl(targetUrl, customReferer) {
   }
   if (targetUrl.includes('wixmp.com') || targetUrl.includes('203.188.') || targetUrl.includes('allmanga') || targetUrl.includes('fallanime')) {
     return 'https://allanimeuns.bio/';
+  }
+  if (customReferer && customReferer.startsWith('http')) {
+    return customReferer;
   }
   return customReferer || null;
 }
@@ -85,8 +84,38 @@ function findAlternateOrigin(targetUrl, currentReferer) {
   return null;
 }
 
+function saveCookiesFromResponse(response, targetUrl) {
+  try {
+    let targetHost = new URL(targetUrl).hostname;
+    const setCookies = typeof response.headers.getSetCookie === 'function'
+      ? response.headers.getSetCookie()
+      : [response.headers.get("set-cookie")].filter(Boolean);
+
+    if (setCookies && setCookies.length > 0) {
+      const existing = serverCache.get("cookie_" + targetHost) || "";
+      const cookieMap = new Map();
+      if (existing) {
+        existing.split(';').forEach(pair => {
+          const [k, ...v] = pair.trim().split('=');
+          if (k) cookieMap.set(k.trim(), v.join('=').trim());
+        });
+      }
+      setCookies.forEach(c => {
+        const firstPart = c.split(';')[0].trim();
+        const [k, ...v] = firstPart.split('=');
+        if (k) cookieMap.set(k.trim(), v.join('=').trim());
+      });
+      const serialized = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
+      if (serialized) {
+        serverCache.set("cookie_" + targetHost, serialized, 86400); // 24h
+      }
+    }
+  } catch (e) {}
+}
+
 async function fetchWithRetry(targetUrl, headers, signal, currentReferer) {
   let response = await fetch(targetUrl, { headers, signal });
+  saveCookiesFromResponse(response, targetUrl);
 
   // If 403, try rotating to an alternate known-good origin
   if (response.status === 403) {
@@ -98,6 +127,7 @@ async function fetchWithRetry(targetUrl, headers, signal, currentReferer) {
       console.log(`[PROXY] 403 from ${targetHost}, retrying with origin ${alt.origin}`);
       const retryHeaders = { ...headers, "Referer": alt.referer, "Origin": alt.origin };
       response = await fetch(targetUrl, { headers: retryHeaders, signal });
+      saveCookiesFromResponse(response, targetUrl);
 
       // Cache successful origin for this CDN hostname
       if (response.ok || response.status === 206) {
@@ -113,6 +143,14 @@ async function fetchWithRetry(targetUrl, headers, signal, currentReferer) {
 
 exports.proxy = async (req, res) => {
   try {
+    if (req.method === "OPTIONS") {
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
+      res.setHeader("Access-Control-Allow-Headers", "DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization");
+      res.setHeader("Access-Control-Max-Age", "86400");
+      return res.status(204).end();
+    }
+
     const targetUrl = req.query.url;
     if (!targetUrl) return res.status(400).send("No url provided");
 
@@ -141,7 +179,12 @@ exports.proxy = async (req, res) => {
       }
     });
 
-    const response = await fetchWithRetry(targetUrl, headers, controller.signal, refererHeader);
+    const fetchOptions = { headers, signal: controller.signal };
+    if (req.method === "HEAD") {
+      fetchOptions.method = "HEAD";
+    }
+
+    const response = await fetchWithRetry(targetUrl, fetchOptions.headers, fetchOptions.signal, refererHeader);
     if (!response.ok && response.status !== 206) {
       // If 403, mark this CDN as strict so future manifests proxy its segments
       if (response.status === 403 && targetHost) {
@@ -159,8 +202,16 @@ exports.proxy = async (req, res) => {
     const { done, value: firstChunk } = await reader.read();
 
     if (done || !firstChunk) {
-      res.status(response.status).end();
-      return;
+      res.status(response.status);
+      const headersToKeep = ["content-type", "content-length", "accept-ranges", "content-range"];
+      response.headers.forEach((val, key) => {
+        if (headersToKeep.includes(key.toLowerCase())) res.setHeader(key, val);
+      });
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
+      res.setHeader("Access-Control-Allow-Headers", "DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization");
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+      return res.end();
     }
 
     const isKey = targetUrl.includes('.key');
@@ -245,26 +296,51 @@ exports.proxy = async (req, res) => {
     }
 
     let chunkToWrite = firstChunk;
-    let slicedFakePng = false;
+    let strippedDecoy = false;
 
-    if (chunkToWrite.length > 8 && chunkToWrite[0] === 0x89 && chunkToWrite[1] === 0x50 && chunkToWrite[2] === 0x4E && chunkToWrite[3] === 0x47) {
-      let tsOffset = -1;
-      for (let i = 0; i < Math.min(chunkToWrite.length, 100000); i++) {
-        if (chunkToWrite[i] === 0x47 && chunkToWrite[i + 188] === 0x47 && chunkToWrite[i + 376] === 0x47) {
-          tsOffset = i;
-          break;
+    // Universal Decoy Stripping: check for disguised MPEG-TS or fMP4 regardless of magic image bytes
+    if (chunkToWrite.length > 376) {
+      const startsWithTs = (chunkToWrite[0] === 0x47 && chunkToWrite[188] === 0x47 && chunkToWrite[376] === 0x47);
+      if (!startsWithTs) {
+        let tsOffset = -1;
+        for (let i = 0; i < Math.min(chunkToWrite.length - 376, 100000); i++) {
+          if (chunkToWrite[i] === 0x47 && chunkToWrite[i + 188] === 0x47 && chunkToWrite[i + 376] === 0x47) {
+            tsOffset = i;
+            break;
+          }
+        }
+        if (tsOffset !== -1) {
+          chunkToWrite = chunkToWrite.slice(tsOffset);
+          strippedDecoy = true;
         }
       }
-      if (tsOffset !== -1) {
-        chunkToWrite = chunkToWrite.slice(tsOffset);
-        slicedFakePng = true;
+    }
+
+    if (!strippedDecoy && chunkToWrite.length > 16) {
+      const mp4Boxes = ['ftyp', 'styp', 'moof', 'moov'];
+      let mp4Offset = -1;
+      for (let i = 0; i < Math.min(chunkToWrite.length - 8, 100000); i++) {
+        const typeStr = chunkToWrite.toString('ascii', i + 4, i + 8);
+        if (mp4Boxes.includes(typeStr)) {
+          const boxLen = chunkToWrite.readUInt32BE(i);
+          if (boxLen >= 8 && boxLen <= chunkToWrite.length - i + 1000000) {
+            if (i > 0) {
+              mp4Offset = i;
+              break;
+            }
+          }
+        }
+      }
+      if (mp4Offset !== -1) {
+        chunkToWrite = chunkToWrite.slice(mp4Offset);
+        strippedDecoy = true;
       }
     }
 
     res.status(response.status);
 
     const headersToKeep = ["content-type", "accept-ranges", "content-range"];
-    if (!slicedFakePng) {
+    if (!strippedDecoy) {
       headersToKeep.push("content-length");
     }
 
@@ -275,8 +351,13 @@ exports.proxy = async (req, res) => {
       }
     });
 
-    if (slicedFakePng || targetUrl.includes('.jpg') || targetUrl.includes('.png') || targetUrl.includes('.ts')) {
-      res.setHeader("Content-Type", "video/mp2t");
+    const isImageExtOrMime = targetUrl.includes('.jpg') || targetUrl.includes('.png') || targetUrl.includes('.gif') || targetUrl.includes('.webp') || response.headers.get("content-type")?.toLowerCase().includes("image/");
+    if (strippedDecoy || isImageExtOrMime || targetUrl.includes('.ts')) {
+      if (chunkToWrite.length > 8 && ['ftyp', 'styp', 'moof', 'moov'].includes(chunkToWrite.toString('ascii', 4, 8))) {
+        res.setHeader("Content-Type", "video/mp4");
+      } else {
+        res.setHeader("Content-Type", "video/mp2t");
+      }
     } else if (isKey) {
       res.setHeader("Content-Type", "application/octet-stream");
     } else if (targetUrl.includes('.vtt')) {
