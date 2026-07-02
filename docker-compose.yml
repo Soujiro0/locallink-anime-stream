@@ -13,6 +13,11 @@ services:
       - NO_PROMPT=${NO_PROMPT:-true}
       - PORT=${PORT:-3000}
       - NODE_OPTIONS=--max-old-space-size=128
+      - STREAM_WHITELIST_SECRET=${STREAM_WHITELIST_SECRET:-locallink-secure-hmac-key-2026}
+      - MIRURO_PIPE_URL=${MIRURO_PIPE_URL:-https://www.miruro.tv/api/secure/pipe}
+      - CF_CLEARANCE_MIRURO=${CF_CLEARANCE_MIRURO:-}
+      - CF_USER_AGENT=${CF_USER_AGENT:-}
+      - CF_BYPASS_SECRET=${CF_BYPASS_SECRET:-}
     command: node --optimize-for-size index.js
     restart: unless-stopped
     deploy:

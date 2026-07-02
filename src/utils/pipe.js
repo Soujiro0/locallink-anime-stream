@@ -17,7 +17,7 @@ const HEADERS = {
   "Sec-Fetch-Mode": "cors",
   "Sec-Fetch-Site": "same-origin",
 };
-const MIRURO_PIPE_URL = "https://www.miruro.tv/api/secure/pipe";
+const MIRURO_PIPE_URL = process.env.MIRURO_PIPE_URL || "https://www.miruro.tv/api/secure/pipe";
 
 async function decodePipeResponse(encodedStr) {
   try {
@@ -37,9 +37,76 @@ function encodePipeRequest(payload) {
   return Buffer.from(JSON.stringify(payload)).toString("base64url");
 }
 
+let cycleTLSInstance = null;
+
+async function getCycleTLS() {
+  if (!cycleTLSInstance) {
+    const initCycleTLS = require("cycletls");
+    cycleTLSInstance = await initCycleTLS();
+  }
+  return cycleTLSInstance;
+}
+
+async function fetchUpstreamPipe(encodedReq, headers = {}) {
+  let pipeUrl = process.env.MIRURO_PIPE_URL || "https://www.miruro.tv/api/secure/pipe";
+  if (pipeUrl.includes("8191") || pipeUrl.endsWith("/v1")) {
+    pipeUrl = "https://www.miruro.tv/api/secure/pipe";
+  }
+
+  let customHeaders = { ...HEADERS, ...headers };
+  let targetUrl = `${pipeUrl}?e=${encodedReq}`;
+
+  // Use CycleTLS to perform native TLS JA3 impersonation outside of test environments
+  if (process.env.NODE_ENV !== "test" && !process.env.VITEST) {
+    try {
+      const client = await getCycleTLS();
+      const resp = await client(
+        targetUrl,
+        {
+          timeout: 8,
+          ja3: "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,0-23-65281-10-11-35-16-5-13-18-51-45-43-27-17513,29-23-24,0",
+          userAgent: customHeaders["User-Agent"] || HEADERS["User-Agent"],
+          headers: customHeaders,
+        },
+        "get"
+      );
+      if (resp.status < 500) {
+        return {
+          ok: resp.status >= 200 && resp.status < 300,
+          status: resp.status,
+          text: async () => (resp.data ? resp.data.toString("utf-8") : ""),
+        };
+      }
+    } catch (err) {
+      console.error("CycleTLS failed, falling back to standard fetch:", err.message);
+    }
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+  return fetch(targetUrl, { headers: customHeaders, signal: controller.signal }).finally(() => clearTimeout(timeoutId));
+}
+
+function getHarvestedHeaders() {
+  const headers = {};
+  const clearance = process.env.CF_CLEARANCE_MIRURO || process.env.CF_CLEARANCE;
+  if (clearance) {
+    let cookieVal = clearance.trim();
+    if (!cookieVal.includes("=")) cookieVal = `cf_clearance=${cookieVal}`;
+    headers["Cookie"] = cookieVal;
+  }
+  if (process.env.CF_USER_AGENT) {
+    headers["User-Agent"] = process.env.CF_USER_AGENT;
+  }
+  return headers;
+}
+
 module.exports = {
   HEADERS,
   MIRURO_PIPE_URL,
   decodePipeResponse,
   encodePipeRequest,
+  fetchUpstreamPipe,
+  getCycleTLS,
+  getHarvestedHeaders,
 };

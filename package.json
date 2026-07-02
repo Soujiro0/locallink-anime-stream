@@ -1,6 +1,6 @@
 {
   "name": "locallink",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "",
   "main": "index.js",
   "bin": "index.js",
@@ -15,7 +15,8 @@
   "pkg": {
     "assets": [
       "client/dist/**/*",
-      "src/**/*"
+      "src/**/*",
+      "node_modules/cycletls/dist/**/*"
     ]
   },
   "keywords": [],
@@ -23,6 +24,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "cycletls": "^2.0.5",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "node-cache": "^5.1.2"

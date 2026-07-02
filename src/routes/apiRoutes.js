@@ -32,5 +32,7 @@ router.get("/episodes/:anilist_id", streamController.episodes);
 router.get("/skips/:mal_id/:episode", streamController.skips);
 router.get("/sources", streamController.sources);
 router.get("/watch/:provider/:anilist_id/:category/:slug", streamController.watch);
+router.get("/stream/authorize", streamController.authorize);
+router.post("/stream/authorize", streamController.authorize);
 
 module.exports = router;

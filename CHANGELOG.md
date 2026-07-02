@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.2] (2026-07-02)
+
+### Added
+- **Authoritative Stream Security & IP-Binding**: Implemented cryptographic HMAC stream token signing (`tokenSigner.js`) bound to client public IP addresses (`X-Forwarded-For` / `req.ip`). Added `/api/stream/authorize` endpoint issuing domain-scoped HTTP-only session cookies (`__Secure-LocalLink-Auth`) for zero-overhead HLS segment delivery.
+- **CycleTLS Upstream Parity**: Integrated `cycletls` inside `pipe.js` to impersonate genuine desktop browser TLS JA3 fingerprints (`771,4865-4866...`) when querying protected upstream media APIs, bypassing Cloudflare WAF bot challenges.
+- **Automatic Embed Stream Fallback**: Upgraded `VideoPlayer.jsx` to transition seamlessly to embedded iframe players (`Ok`, `Fm-Hls`, `Mp4 (embed)`) whenever native video streams encounter fatal network or CORS errors or are unavailable.
+
+### Fixed
+- **Episode Switcher Persistence Fix**: Fixed an issue where clicking a new episode while watching an iframe embed player failed to load the new episode. Kept the native `<video>` element always mounted in DOM and positioned `setActiveEmbed(null)` at the beginning of stream processing.
+- **Expired Token & Blocked Stream Filtering**: Added backend filtering in `streamController.js` inspecting timestamp signatures inside upstream `fast4speed.rsvp` / `Authorization=` stream URLs and excluding expired links or blocked `403` direct mp4upload links.
+
+### Changed
+- **Consolidated Documentation Artifacts**: Consolidated architecture and security models from `REPORT.md` and `CLOUDFLARE_TOKEN_WHITELIST.md` into `MEMORY.md` and removed the two root files to streamline repository structure.
+
 ## [1.2.0] (2026-07-01)
 
 ### Added

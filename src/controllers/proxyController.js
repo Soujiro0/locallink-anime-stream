@@ -1,6 +1,9 @@
 const { Readable } = require("stream");
 const { pipeline } = require("stream/promises");
 const serverCache = require("../config/cache");
+const whitelist = require("../config/whitelist");
+const tokenSigner = require("../utils/tokenSigner");
+const { getCycleTLS, getHarvestedHeaders } = require("../utils/pipe");
 
 // Modern browser fingerprint headers (matching Miruro's Chromium 136 from screenshot)
 const BROWSER_HEADERS = {
@@ -26,11 +29,18 @@ const ORIGIN_WHITELIST = [
 ];
 
 // Default strict CDN hostnames (self-learning list augmented at runtime)
-const DEFAULT_STRICT_CDNS = ["nekostream", "owocdn", "vidtube", "wixmp", "mt.", "203.188."];
+const DEFAULT_STRICT_CDNS = [
+  "nekostream", "owocdn", "uwucdn", "vault-", "vidtube", "wixmp", "mt.", "203.188.",
+  "kwik", "pahe", "bigdreamsmalldih", "allmanga", "fallanime", "megacloud",
+  "rapidcloud", "dokicloud", "ultracloud", "rabbitstream"
+];
 
 function resolveRefererForUrl(targetUrl, customReferer) {
   if (targetUrl.includes('owocdn.top') || targetUrl.includes('uwucdn.top') || targetUrl.includes('bigdreamsmalldih.site') || targetUrl.includes('kwik.') || targetUrl.includes('pahe.')) {
     return 'https://kwik.cx/';
+  }
+  if (targetUrl.includes('megacloud') || targetUrl.includes('rapidcloud') || targetUrl.includes('dokicloud') || targetUrl.includes('rabbitstream')) {
+    return 'https://megacloud.tv/';
   }
   if (targetUrl.includes('nekostream.site') || targetUrl.includes('ipstatp.com')) {
     return 'https://vidtube.site/';
@@ -60,6 +70,7 @@ function buildHeaders(targetUrl, refererHeader, originHeader, cachedCookie, rang
   };
   if (cachedCookie) headers["Cookie"] = cachedCookie;
   if (rangeHeader) headers["Range"] = rangeHeader;
+  whitelist.attachWhitelistedCloudflareState(headers, targetUrl);
   return headers;
 }
 
@@ -113,12 +124,98 @@ function saveCookiesFromResponse(response, targetUrl) {
   } catch (e) {}
 }
 
-async function fetchWithRetry(targetUrl, headers, signal, currentReferer) {
-  let response = await fetch(targetUrl, { headers, signal });
+async function nativeStreamFetch(targetUrl, headers = {}, signal = null, method = "GET") {
+  if (signal?.aborted) throw new Error("Request aborted");
+  if (targetUrl.startsWith("http://") && !targetUrl.includes("localhost") && !targetUrl.includes("127.0.0.1")) {
+    targetUrl = targetUrl.replace("http://", "https://");
+  }
+  const harvested = getHarvestedHeaders();
+  const mergedHeaders = { ...harvested, ...headers };
+
+  let targetHost = "";
+  try { targetHost = new URL(targetUrl).hostname; } catch (e) {}
+
+  // Only try standard undici fetch first if it's NOT a known strict CDN host
+  if (!targetHost || !isStrictCdnHost(targetHost)) {
+    let res = await fetch(targetUrl, { headers: mergedHeaders, signal, method }).catch(() => null);
+    if (res && res.status !== 403 && res.status !== 503) {
+      return res;
+    }
+  }
+
+  if (signal?.aborted) throw new Error("Request aborted");
+
+  // If 403 or network error due to TLS fingerprinting, use CycleTLS
+  try {
+    const client = await getCycleTLS();
+    const fetchPromise = client(
+      targetUrl,
+      {
+        timeout: 12,
+        ja3: "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,0-23-65281-10-11-35-16-5-13-18-51-45-43-27-17513,29-23-24,0",
+        userAgent: mergedHeaders["User-Agent"] || BROWSER_HEADERS["User-Agent"],
+        headers: mergedHeaders,
+      },
+      method.toLowerCase()
+    );
+
+    const abortPromise = new Promise((_, reject) => {
+      if (signal) {
+        if (signal.aborted) reject(new Error("Request aborted"));
+        else signal.addEventListener("abort", () => reject(new Error("Request aborted")), { once: true });
+      }
+    });
+
+    const resp = await Promise.race([fetchPromise, abortPromise]);
+
+    const headersMap = new Map();
+    if (resp.headers) {
+      Object.entries(resp.headers).forEach(([k, v]) => {
+        const val = Array.isArray(v) ? v.join("; ") : String(v);
+        headersMap.set(k.toLowerCase(), val);
+      });
+    }
+
+    const rawData = resp.data || Buffer.alloc(0);
+    const buf = Buffer.isBuffer(rawData) ? rawData : Buffer.from(rawData);
+    let readDone = false;
+
+    return {
+      ok: resp.status >= 200 && resp.status < 300,
+      status: resp.status,
+      headers: {
+        get: (key) => headersMap.get(key.toLowerCase()) || null,
+        forEach: (callback) => headersMap.forEach((v, k) => callback(v, k)),
+      },
+      text: async () => buf.toString("utf-8"),
+      body: {
+        getReader: () => ({
+          read: async () => {
+            if (readDone) return { done: true, value: undefined };
+            readDone = true;
+            return { done: false, value: buf };
+          },
+          cancel: async () => {},
+        }),
+      },
+    };
+  } catch (err) {
+    console.error(`[PROXY] CycleTLS fallback failed for ${targetUrl}:`, err.message);
+    if (res) return res;
+    throw err;
+  }
+}
+
+async function fetchWithRetry(targetUrl, headers, signal, currentReferer, isTrusted = false) {
+  let response = await nativeStreamFetch(targetUrl, headers, signal, "GET");
   saveCookiesFromResponse(response, targetUrl);
 
+  if (isTrusted && (response.ok || response.status === 206)) {
+    return response;
+  }
+
   // If 403, try rotating to an alternate known-good origin
-  if (response.status === 403) {
+  if (response.status === 403 && !isTrusted) {
     const alt = findAlternateOrigin(targetUrl, currentReferer);
     if (alt) {
       let targetHost = "";
@@ -126,7 +223,7 @@ async function fetchWithRetry(targetUrl, headers, signal, currentReferer) {
 
       console.log(`[PROXY] 403 from ${targetHost}, retrying with origin ${alt.origin}`);
       const retryHeaders = { ...headers, "Referer": alt.referer, "Origin": alt.origin };
-      response = await fetch(targetUrl, { headers: retryHeaders, signal });
+      response = await nativeStreamFetch(targetUrl, retryHeaders, signal, "GET");
       saveCookiesFromResponse(response, targetUrl);
 
       // Cache successful origin for this CDN hostname
@@ -154,6 +251,10 @@ exports.proxy = async (req, res) => {
     const targetUrl = req.query.url;
     if (!targetUrl) return res.status(400).send("No url provided");
 
+    const tokenParam = req.query.token || req.query.wl_token || req.query.sig;
+    const clientIp = tokenSigner.extractClientIp(req);
+    const isTrustedToken = whitelist.isWhitelistedToken(tokenParam, targetUrl, req.query.exp ? clientIp : null, req.query.exp);
+
     let customReferer = req.query.referer;
     customReferer = resolveRefererForUrl(targetUrl, customReferer);
 
@@ -173,7 +274,7 @@ exports.proxy = async (req, res) => {
     const headers = buildHeaders(targetUrl, refererHeader, originHeader, cachedCookie, req.headers.range);
 
     const controller = new AbortController();
-    req.on("close", () => {
+    res.on("close", () => {
       if (!res.writableEnded) {
         controller.abort();
       }
@@ -184,7 +285,7 @@ exports.proxy = async (req, res) => {
       fetchOptions.method = "HEAD";
     }
 
-    const response = await fetchWithRetry(targetUrl, fetchOptions.headers, fetchOptions.signal, refererHeader);
+    const response = await fetchWithRetry(targetUrl, fetchOptions.headers, fetchOptions.signal, refererHeader, isTrustedToken);
     if (!response.ok && response.status !== 206) {
       // If 403, mark this CDN as strict so future manifests proxy its segments
       if (response.status === 403 && targetHost) {
@@ -241,22 +342,27 @@ exports.proxy = async (req, res) => {
       const isHybridManifest = !forceProxy && !isStrictCdnHost(targetHost);
 
       const cookieParam = cachedCookie ? "&cookie=" + encodeURIComponent(cachedCookie) : "";
+      const tokenParams = whitelist.extractTokenParams(targetUrl);
+      if (tokenParam) tokenParams.set("token", tokenParam);
+      const tokenQueryStr = tokenParams.toString() ? "&" + tokenParams.toString() : "";
 
       for (let i = 0; i < lines.length; i++) {
         let line = lines[i].trim();
         if (line && !line.startsWith('#')) {
           let absoluteUrl = line.startsWith('http') ? line : new URL(line, baseUrl).href;
+          if (absoluteUrl.startsWith("http://") && !absoluteUrl.includes("localhost") && !absoluteUrl.includes("127.0.0.1")) {
+            absoluteUrl = absoluteUrl.replace("http://", "https://");
+          }
           if (isHybridManifest && !absoluteUrl.toLowerCase().includes('.m3u8')) {
-            // Check if the segment's CDN host is strict (self-learning)
             let segHost = "";
             try { segHost = new URL(absoluteUrl).hostname; } catch (e) {}
             if (segHost && isStrictCdnHost(segHost)) {
-              lines[i] = proxyBase + encodeURIComponent(absoluteUrl) + "&referer=" + encodeURIComponent(refererHeader) + cookieParam;
+              lines[i] = proxyBase + encodeURIComponent(absoluteUrl) + "&referer=" + encodeURIComponent(refererHeader) + cookieParam + tokenQueryStr;
             } else {
               lines[i] = absoluteUrl;
             }
           } else {
-            lines[i] = proxyBase + encodeURIComponent(absoluteUrl) + "&referer=" + encodeURIComponent(refererHeader) + cookieParam;
+            lines[i] = proxyBase + encodeURIComponent(absoluteUrl) + "&referer=" + encodeURIComponent(refererHeader) + cookieParam + tokenQueryStr;
           }
         } else if (line.includes('URI="')) {
           const match = line.match(/URI="([^"]+)"/);
@@ -264,17 +370,20 @@ exports.proxy = async (req, res) => {
             let uri = match[1];
             if (!uri.startsWith('data:')) {
               let absoluteUri = uri.startsWith('http') ? uri : new URL(uri, baseUrl).href;
+              if (absoluteUri.startsWith("http://") && !absoluteUri.includes("localhost") && !absoluteUri.includes("127.0.0.1")) {
+                absoluteUri = absoluteUri.replace("http://", "https://");
+              }
               if (isHybridManifest && !absoluteUri.toLowerCase().includes('.m3u8') && !absoluteUri.toLowerCase().includes('.key')) {
                 let uriHost = "";
                 try { uriHost = new URL(absoluteUri).hostname; } catch (e) {}
                 if (uriHost && isStrictCdnHost(uriHost)) {
-                  let wrappedUri = proxyBase + encodeURIComponent(absoluteUri) + "&referer=" + encodeURIComponent(refererHeader) + cookieParam;
+                  let wrappedUri = proxyBase + encodeURIComponent(absoluteUri) + "&referer=" + encodeURIComponent(refererHeader) + cookieParam + tokenQueryStr;
                   lines[i] = line.replace(`URI="${match[1]}"`, `URI="${wrappedUri}"`);
                 } else {
                   lines[i] = line.replace(`URI="${match[1]}"`, `URI="${absoluteUri}"`);
                 }
               } else {
-                let wrappedUri = proxyBase + encodeURIComponent(absoluteUri) + "&referer=" + encodeURIComponent(refererHeader) + cookieParam;
+                let wrappedUri = proxyBase + encodeURIComponent(absoluteUri) + "&referer=" + encodeURIComponent(refererHeader) + cookieParam + tokenQueryStr;
                 lines[i] = line.replace(`URI="${match[1]}"`, `URI="${wrappedUri}"`);
               }
             }

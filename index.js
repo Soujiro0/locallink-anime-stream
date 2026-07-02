@@ -57,6 +57,15 @@ if (require.main === module) {
     const server = app.listen(defaultPort, "0.0.0.0", () => {
       console.log(`\n✅ Server successfully started on port ${defaultPort} (Non-interactive mode)`);
     });
+    server.on("error", (err) => {
+      if (err.code === "EADDRINUSE") {
+        console.error(`\n❌ Port ${defaultPort} is already in use by another process!`);
+        console.error(`Please close any existing running instance of LocalLink (or run 'taskkill /F /IM node.exe' on Windows) and try again.\n`);
+      } else {
+        console.error(`\n❌ Server error:`, err.message);
+      }
+      process.exit(1);
+    });
     server.keepAliveTimeout = 65000;
     server.headersTimeout = 66000;
   } else {
