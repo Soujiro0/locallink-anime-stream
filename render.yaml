@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: locallink-anime-stream
+    env: node
+    region: oregon
+    plan: free
+    buildCommand: npm install && npm run build:client
+    startCommand: npm start
+    healthCheckPath: /api/anime/trending
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: 20.18.0
+      - key: PORT
+        value: 10000
+      - key: NO_PROMPT
+        value: true
+      - key: STREAM_WHITELIST_SECRET
+        generateValue: true
+      - key: MIRURO_PIPE_URL
+        value: https://www.miruro.tv/api/secure/pipe
+      - key: CF_CLEARANCE_MIRURO
+        sync: false
+      - key: CF_USER_AGENT
+        sync: false

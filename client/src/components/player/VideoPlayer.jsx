@@ -26,6 +26,7 @@ export default function VideoPlayer({
 	const hlsRef = useRef(null);
 	const [qualities, setQualities] = useState([]);
 	const [isReady, setIsReady] = useState(false);
+	const [activeEmbed, setActiveEmbed] = useState(null);
 
 	const playerState = usePlayerState(videoRef, isLoading);
 
@@ -71,15 +72,24 @@ export default function VideoPlayer({
 	
 	// HLS setup (same proven logic, just removed native controls)
 useEffect(() => {
-        const video = videoRef.current;
-        if (!video || !streams.length) return;
+        if (!streams || !streams.length) return;
 
+        setActiveEmbed(null);
         destroyHls();
         setIsReady(false);
         setQualities([]);
 
+        const video = videoRef.current;
+        if (!video) return;
+
         const hlsStreams = streams.filter(
             (s) => (s.type === "hls" || s.url?.includes(".m3u8")) && !!s.url
+        );
+        const directStreams = streams.filter(
+            (s) => s.type !== "hls" && !s.url?.includes(".m3u8") && s.type !== "embed" && !s.url?.includes("embed") && !!s.url
+        );
+        const embedStreams = streams.filter(
+            (s) => s.type === "embed" || s.url?.includes("embed") || (s.url && !s.url.includes(".m3u8") && !s.url.includes(".mp4"))
         );
 
         if (Hls.isSupported() && hlsStreams.length > 0) {
@@ -115,7 +125,6 @@ useEffect(() => {
                         case Hls.ErrorTypes.NETWORK_ERROR:
                             networkErrorCount++;
                             if (networkErrorCount === 1 && errData.response?.code === 403) {
-                                // Report this CDN as strict to the backend for self-learning
                                 try {
                                     const blockedUrl = errData.url || errData.frag?.url || "";
                                     if (blockedUrl) {
@@ -132,16 +141,24 @@ useEffect(() => {
                                 let fallbackProxyUrl = getProxyUrl(hlsStreams[currentStreamIndex].url, hlsStreams[currentStreamIndex].referer, false) + "&proxyChunks=true";
                                 hls.loadSource(fallbackProxyUrl);
                             } else if (networkErrorCount <= 3) {
-                                // Try the next available HLS stream before giving up
                                 currentStreamIndex++;
                                 if (currentStreamIndex < hlsStreams.length) {
                                     console.warn(`Stream ${currentStreamIndex - 1} failed, trying stream ${currentStreamIndex}...`);
-                                    networkErrorCount = 0; // Reset for the new stream
+                                    networkErrorCount = 0;
                                     let nextProxyUrl = getProxyUrl(hlsStreams[currentStreamIndex].url, hlsStreams[currentStreamIndex].referer, false);
                                     hls.loadSource(nextProxyUrl);
+                                } else if (embedStreams.length > 0) {
+                                    console.warn("All HLS streams failed, falling back to embed stream...");
+                                    hls.destroy();
+                                    setActiveEmbed(embedStreams[0]);
+                                    setIsReady(true);
                                 } else {
                                     hls.startLoad();
                                 }
+                            } else if (embedStreams.length > 0) {
+                                hls.destroy();
+                                setActiveEmbed(embedStreams[0]);
+                                setIsReady(true);
                             } else {
                                 hls.destroy();
                             }
@@ -172,20 +189,20 @@ useEffect(() => {
 				if (initialTime > 0) video.currentTime = initialTime;
 				video.play().catch(() => {});
 			});
-		} else {
-			const directStreams = streams.filter((s) => s.type !== "hls" && !s.url?.includes(".m3u8") && !!s.url);
-			if (directStreams.length > 0) {
-				const q = directStreams.map((s) => ({ label: s.quality, value: s.quality }));
-				setQualities(q);
-				setCurrentQuality(directStreams[0].quality);
+		} else if (directStreams.length > 0) {
+			const q = directStreams.map((s) => ({ label: s.quality, value: s.quality }));
+			setQualities(q);
+			setCurrentQuality(directStreams[0].quality);
 
-				let proxyUrl = getProxyUrl(directStreams[0].url, directStreams[0].referer, false);
-				video.src = proxyUrl;
-				setIsReady(true);
-			} else if (hlsStreams.length === 0) {
-				console.error("No valid streams found.");
-				// Optionally, set an error state here if you have one.
-			}
+			let proxyUrl = getProxyUrl(directStreams[0].url, directStreams[0].referer, false);
+			video.src = proxyUrl;
+			setIsReady(true);
+		} else if (embedStreams.length > 0) {
+			console.log("Using embed stream fallback:", embedStreams[0].server);
+			setActiveEmbed(embedStreams[0]);
+			setIsReady(true);
+		} else {
+			console.error("No valid streams found.");
 		}
 
 		return () => destroyHls();
@@ -330,8 +347,19 @@ useEffect(() => {
 				}
 			}}
 		>
-			{/* Video element */}
+			{/* Video element or Embed Fallback */}
 			<div className="relative w-full pt-[56.25%] bg-black rounded-lg overflow-hidden">
+				{activeEmbed && (
+					<div className="absolute inset-0 w-full h-full flex flex-col bg-black z-20">
+						<iframe
+							src={activeEmbed.url}
+							className="w-full h-full border-0"
+							allowFullScreen
+							allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+							title={title || "Video Player"}
+						/>
+					</div>
+				)}
 				<style>
 					{`
 						video::cue {
@@ -348,7 +376,7 @@ useEffect(() => {
 				</style>
 				<video
 					ref={videoRef}
-					className="absolute inset-0 w-full h-full cursor-pointer"
+					className={`absolute inset-0 w-full h-full cursor-pointer ${activeEmbed ? "hidden" : ""}`}
 					playsInline
 					crossOrigin="anonymous"
 					onPlay={playerState.onPlay}
@@ -387,7 +415,7 @@ useEffect(() => {
 				)}
 
 				{/* Center play overlay (paused state) */}
-				{!isPlaying && isReady && (
+				{!activeEmbed && !isPlaying && isReady && (
 					<div
 						className="absolute inset-0 flex items-center justify-center cursor-pointer"
 						onClick={(e) => {
@@ -402,29 +430,31 @@ useEffect(() => {
 				)}
 
 				{/* Skip buttons */}
-				{showSkipIntro && (
+				{!activeEmbed && showSkipIntro && (
 					<SkipButton label="Skip Intro" onClick={() => seek(intro.end)} />
 				)}
-				{showSkipOutro && (
+				{!activeEmbed && showSkipOutro && (
 					<SkipButton label="Skip Outro" onClick={() => seek(outro.end)} />
 				)}
 
 				{/* Controls overlay (bottom gradient + controls) */}
-				<div className="player-controls-overlay">
-					<PlayerControls
-						playerState={playerState}
-						qualities={qualities}
-						hasPrev={hasPrev}
-						hasNext={hasNext}
-						onPrevEpisode={onPrevEpisode}
-						onNextEpisode={onNextEpisode}
-						intro={intro}
-						outro={outro}
-						subtitles={subtitles}
-						isTheater={isTheater}
-						onToggleTheater={onToggleTheater}
-					/>
-				</div>
+				{!activeEmbed && (
+					<div className="player-controls-overlay">
+						<PlayerControls
+							playerState={playerState}
+							qualities={qualities}
+							hasPrev={hasPrev}
+							hasNext={hasNext}
+							onPrevEpisode={onPrevEpisode}
+							onNextEpisode={onNextEpisode}
+							intro={intro}
+							outro={outro}
+							subtitles={subtitles}
+							isTheater={isTheater}
+							onToggleTheater={onToggleTheater}
+						/>
+					</div>
+				)}
 			</div>
 		</div>
 	);
