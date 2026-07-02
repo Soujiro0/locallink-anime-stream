@@ -177,8 +177,20 @@ async function nativeStreamFetch(targetUrl, headers = {}, signal = null, method 
       });
     }
 
-    const rawData = resp.data || Buffer.alloc(0);
-    const buf = Buffer.isBuffer(rawData) ? rawData : Buffer.from(rawData);
+    const rawData = resp.data;
+    // CycleTLS arraybuffer returns ArrayBuffer (not Buffer). Buffer.from(ArrayBuffer)
+    // reads from byteOffset=0 of the underlying pool, corrupting data when byteOffset!=0.
+    // Wrapping with Uint8Array first correctly slices the view's byte range.
+    let buf;
+    if (Buffer.isBuffer(rawData)) {
+      buf = rawData;
+    } else if (rawData instanceof ArrayBuffer) {
+      buf = Buffer.from(new Uint8Array(rawData));
+    } else if (rawData) {
+      buf = Buffer.from(new Uint8Array(rawData.buffer || rawData, rawData.byteOffset || 0, rawData.byteLength || rawData.length));
+    } else {
+      buf = Buffer.alloc(0);
+    }
     let readDone = false;
 
     return {
@@ -316,7 +328,9 @@ exports.proxy = async (req, res) => {
       return res.end();
     }
 
-    const isKey = targetUrl.includes('.key') || targetUrl.endsWith('/monkey') || targetUrl.includes('/key/') || targetUrl.endsWith('/key') || (firstChunk && firstChunk.length === 16);
+    let targetPath = "";
+    try { targetPath = new URL(targetUrl).pathname.toLowerCase(); } catch (e) {}
+    const isKey = targetPath.endsWith('.key') || targetPath.endsWith('/monkey') || targetPath.includes('/key/') || targetUrl.includes('.key') || targetUrl.includes('/monkey') || (firstChunk && firstChunk.length === 16);
     const isM3u8 =
       targetUrl.includes('.m3u8') ||
       (!isKey && firstChunk.length >= 7 && Buffer.from(firstChunk.slice(0, 7)).toString('utf-8') === '#EXTM3U') ||

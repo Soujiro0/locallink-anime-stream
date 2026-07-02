@@ -55,7 +55,7 @@ async function safeTokenFetch(url, headers, method = "GET", body = null) {
         Object.entries(resp.headers).forEach(([k, v]) => resHeaders.set(k.toLowerCase(), Array.isArray(v) ? v.join("; ") : String(v)));
       }
       return {
-        url,
+        url: resp.finalUrl || url,
         text: resp.data ? resp.data.toString("utf-8") : "",
         headers: { get: (k) => resHeaders.get(k.toLowerCase()) || null },
       };
@@ -219,7 +219,7 @@ async function enrichStreamResponse(data, provider, req, res) {
 
 
   const listToResolve = Array.isArray(data.sources) ? data.sources : (Array.isArray(data.streams) ? data.streams : null);
-  if ((prov === "ally" || prov === "allmanga" || prov === "bee" || prov === "pahe" || prov === "kwik") && listToResolve) {
+  if ((prov === "ally" || prov === "allmanga" || prov === "bee" || prov === "pahe" || prov === "kwik" || prov === "kiwi") && listToResolve) {
     await Promise.all(listToResolve.map(async (source) => {
       if (source && typeof source.url === "string") {
         source.url = await resolveSessionToken(source.url, data?.headers?.Referer, prov);
