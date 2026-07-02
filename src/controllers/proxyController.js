@@ -191,6 +191,10 @@ async function nativeStreamFetch(targetUrl, headers = {}, signal = null, method 
     } else {
       buf = Buffer.alloc(0);
     }
+    const isKeyUrl = targetUrl.includes('/monkey') || targetUrl.includes('.key') || targetUrl.includes('/key/');
+    if (isKeyUrl) {
+      console.log(`[CYCLETLS-KEY] ${targetUrl.slice(-80)} → status=${resp.status} finalUrl=${resp.finalUrl} rawType=${rawData?.constructor?.name} bufLen=${buf.length} hex=${buf.slice(0,8).toString('hex')}`);
+    }
     let readDone = false;
 
     return {
@@ -316,6 +320,7 @@ exports.proxy = async (req, res) => {
     const { done, value: firstChunk } = await reader.read();
 
     if (done || !firstChunk) {
+      console.log(`[PROXY-EMPTY] ${targetUrl.slice(-80)} → status=${response.status} done=${done} firstChunk=${firstChunk?.length ?? 'null'}`);
       res.status(response.status);
       const headersToKeep = ["content-type", "content-length", "accept-ranges", "content-range"];
       response.headers.forEach((val, key) => {
@@ -331,6 +336,9 @@ exports.proxy = async (req, res) => {
     let targetPath = "";
     try { targetPath = new URL(targetUrl).pathname.toLowerCase(); } catch (e) {}
     const isKey = targetPath.endsWith('.key') || targetPath.endsWith('/monkey') || targetPath.includes('/key/') || targetUrl.includes('.key') || targetUrl.includes('/monkey') || (firstChunk && firstChunk.length === 16);
+    if (isKey) {
+      console.log(`[PROXY-KEY] ${targetUrl.slice(-80)} → isKey=${isKey} firstChunkLen=${firstChunk?.length} hex=${firstChunk ? Buffer.from(firstChunk).slice(0,8).toString('hex') : 'none'}`);
+    }
     const isM3u8 =
       targetUrl.includes('.m3u8') ||
       (!isKey && firstChunk.length >= 7 && Buffer.from(firstChunk.slice(0, 7)).toString('utf-8') === '#EXTM3U') ||
