@@ -203,6 +203,7 @@ async function nativeStreamFetch(targetUrl, headers = {}, signal = null, method 
       headers: {
         get: (key) => headersMap.get(key.toLowerCase()) || null,
         forEach: (callback) => headersMap.forEach((v, k) => callback(v, k)),
+        getSetCookie: () => resp.headers && resp.headers["set-cookie"] ? (Array.isArray(resp.headers["set-cookie"]) ? resp.headers["set-cookie"] : [resp.headers["set-cookie"]]) : [],
       },
       text: async () => buf.toString("utf-8"),
       body: {

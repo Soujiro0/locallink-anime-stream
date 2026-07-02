@@ -57,7 +57,10 @@ async function safeTokenFetch(url, headers, method = "GET", body = null) {
       return {
         url: resp.finalUrl || url,
         text: resp.data ? resp.data.toString("utf-8") : "",
-        headers: { get: (k) => resHeaders.get(k.toLowerCase()) || null },
+        headers: { 
+          get: (k) => resHeaders.get(k.toLowerCase()) || null,
+          getSetCookie: () => resp.headers && resp.headers["set-cookie"] ? (Array.isArray(resp.headers["set-cookie"]) ? resp.headers["set-cookie"] : [resp.headers["set-cookie"]]) : [],
+        },
       };
     } catch (e) {}
   }
@@ -98,8 +101,15 @@ async function resolveSessionToken(url, referer, provider) {
       return response.url || url;
     }
 
-    let setCookies = response.headers.get("set-cookie") || "";
-    let cookieStr = setCookies.split(",").map(c => c.split(";")[0].trim()).join("; ");
+    const setCookies = typeof response.headers.getSetCookie === 'function'
+      ? response.headers.getSetCookie()
+      : [response.headers.get("set-cookie")].filter(Boolean);
+    
+    let cookieStr = "";
+    if (setCookies && setCookies.length > 0) {
+      cookieStr = setCookies.map(c => c.split(";")[0].trim()).join("; ");
+    }
+    
     if (cookieStr) {
       try {
         serverCache.set("cookie_" + new URL(url).hostname, cookieStr, 3600);
@@ -137,11 +147,23 @@ async function resolveSessionToken(url, referer, provider) {
           "Cookie": cookieStr
         }, "POST", formData.toString());
 
-        let tokenSetCookies = tokenRes.headers.get("set-cookie") || "";
-        let tokenCookieStr = tokenSetCookies.split(",").map(c => c.split(";")[0].trim()).join("; ");
-        if (tokenCookieStr || cookieStr) {
+        const tokenSetCookies = typeof tokenRes.headers.getSetCookie === 'function'
+          ? tokenRes.headers.getSetCookie()
+          : [tokenRes.headers.get("set-cookie")].filter(Boolean);
+        
+        let tokenCookieStr = "";
+        if (tokenSetCookies && tokenSetCookies.length > 0) {
+          tokenCookieStr = tokenSetCookies.map(c => c.split(";")[0].trim()).join("; ");
+        }
+        
+        if (tokenCookieStr) {
+          cookieStr = (cookieStr ? cookieStr + "; " : "") + tokenCookieStr;
           try {
-            serverCache.set("cookie_" + new URL(tokenRes.url || actionUrl).hostname, tokenCookieStr || cookieStr, 3600);
+            serverCache.set("cookie_" + new URL(tokenRes.url || actionUrl).hostname, cookieStr, 3600);
+          } catch (e) {}
+        } else if (cookieStr) {
+          try {
+            serverCache.set("cookie_" + new URL(tokenRes.url || actionUrl).hostname, cookieStr, 3600);
           } catch (e) {}
         }
 
