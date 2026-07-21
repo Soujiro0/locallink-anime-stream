@@ -252,8 +252,10 @@ async function enrichStreamResponse(data, provider, req, res) {
   }
 
   // Attach legitimate native IP-bound tokens and HLS session cookie
-  // In pkg builds, this is disabled as the proxy runs locally and is not exposed to the internet.
-  if (req && listToResolve && listToResolve.length > 0 && typeof process.pkg === "undefined") {
+  // In pkg builds, or when explicitly set to private mode, this is disabled as the proxy runs locally and is not exposed to the internet.
+  const isPublic = typeof process.pkg === "undefined" && process.env.PRIVATE_MODE !== "true";
+  if (req && listToResolve && listToResolve.length > 0 && isPublic) {
+
     try {
       const clientIp = tokenSigner.extractClientIp(req);
       const primaryUrl = listToResolve[0]?.url || "locallink_stream";
