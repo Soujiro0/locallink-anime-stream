@@ -282,7 +282,11 @@ exports.proxy = async (req, res) => {
 
     const tokenParam = req.query.token || req.query.wl_token || req.query.sig;
     const clientIp = tokenSigner.extractClientIp(req);
+<<<<<<< HEAD
     
+=======
+
+>>>>>>> 26790e121f81d244117bb0284ca9baa9c26c853a
     // In pkg builds, or when explicitly set to private mode, the proxy is local and not exposed to the internet.
     // We can safely trust all requests and bypass token validation.
     const isPublic = typeof process.pkg === "undefined" && process.env.PRIVATE_MODE !== "true";
@@ -382,7 +386,10 @@ exports.proxy = async (req, res) => {
 
       const cookieParam = cachedCookie ? "&cookie=" + encodeURIComponent(cachedCookie) : "";
       const tokenParams = whitelist.extractTokenParams(targetUrl);
-      if (tokenParam) tokenParams.set("token", tokenParam);
+      // Append the proxy's HMAC signature and expiration so chunks can bypass the proxy auth
+      if (req.query.sig) tokenParams.set("sig", req.query.sig);
+      if (req.query.exp) tokenParams.set("exp", req.query.exp);
+      if (req.query.proxyChunks) tokenParams.set("proxyChunks", req.query.proxyChunks);
       const tokenQueryStr = tokenParams.toString() ? "&" + tokenParams.toString() : "";
 
       for (let i = 0; i < lines.length; i++) {
@@ -498,6 +505,14 @@ exports.proxy = async (req, res) => {
         res.setHeader(key, val);
       }
     });
+
+    // Cloudflare CAPTCHA/Block disguised as 200 OK
+    if (!isKey && !strippedDecoy && chunkToWrite.length < 50000 && chunkToWrite.toString().includes('<html')) {
+      console.log(`[PROXY-ERROR] Received HTML instead of chunk for ${targetUrl.slice(-80)}`);
+      res.status(403);
+      res.setHeader("Content-Type", "text/html");
+      return res.send(chunkToWrite);
+    }
 
     const isImageExtOrMime = targetUrl.includes('.jpg') || targetUrl.includes('.png') || targetUrl.includes('.gif') || targetUrl.includes('.webp') || response.headers.get("content-type")?.toLowerCase().includes("image/");
     if (isKey) {
