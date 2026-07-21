@@ -60,11 +60,14 @@ export default function VideoPlayer({
 		}
 	}, []);
 
-	const getProxyUrl = useCallback((url, referer, absolute = false) => {
-		if (!url?.startsWith("http")) return url;
+	const getProxyUrl = useCallback((stream, absolute = false) => {
+		if (!stream || !stream.url || !stream.url.startsWith("http")) return stream?.url;
 		let proxyBase = absolute ? window.location.origin + "/proxy?url=" : "/proxy?url=";
-		let proxyUrl = proxyBase + encodeURIComponent(url);
-		if (referer) proxyUrl += "&referer=" + encodeURIComponent(referer);
+		let proxyUrl = proxyBase + encodeURIComponent(stream.url);
+		if (stream.referer) proxyUrl += "&referer=" + encodeURIComponent(stream.referer);
+		if (stream.nativeSig && stream.nativeExp) {
+			proxyUrl += "&sig=" + stream.nativeSig + "&exp=" + stream.nativeExp;
+		}
 		return proxyUrl;
 	}, []);
 
@@ -98,7 +101,7 @@ useEffect(() => {
                 maxMaxBufferLength: 120,
             });
 
-            let proxyUrl = getProxyUrl(hlsStreams[0].url, hlsStreams[0].referer, false);
+            let proxyUrl = getProxyUrl(hlsStreams[0], false);
             hls.loadSource(proxyUrl);
             hls.attachMedia(video);
 
@@ -138,14 +141,14 @@ useEffect(() => {
                                 } catch (e) {}
 
                                 console.warn("403 Forbidden on chunk, retrying with adaptive segment proxying...");
-                                let fallbackProxyUrl = getProxyUrl(hlsStreams[currentStreamIndex].url, hlsStreams[currentStreamIndex].referer, false) + "&proxyChunks=true";
+                                let fallbackProxyUrl = getProxyUrl(hlsStreams[currentStreamIndex], false) + "&proxyChunks=true";
                                 hls.loadSource(fallbackProxyUrl);
                             } else if (networkErrorCount <= 3) {
                                 currentStreamIndex++;
                                 if (currentStreamIndex < hlsStreams.length) {
                                     console.warn(`Stream ${currentStreamIndex - 1} failed, trying stream ${currentStreamIndex}...`);
                                     networkErrorCount = 0;
-                                    let nextProxyUrl = getProxyUrl(hlsStreams[currentStreamIndex].url, hlsStreams[currentStreamIndex].referer, false);
+                                    let nextProxyUrl = getProxyUrl(hlsStreams[currentStreamIndex], false);
                                     hls.loadSource(nextProxyUrl);
                                 } else if (embedStreams.length > 0) {
                                     console.warn("All HLS streams failed, falling back to embed stream...");
@@ -182,7 +185,7 @@ useEffect(() => {
 
 			hlsRef.current = hls;
 		} else if (video.canPlayType("application/vnd.apple.mpegurl") && hlsStreams.length > 0) {
-			let proxyUrl = getProxyUrl(hlsStreams[0].url, hlsStreams[0].referer, false);
+			let proxyUrl = getProxyUrl(hlsStreams[0], false);
 			video.src = proxyUrl;
 			video.addEventListener("loadedmetadata", () => {
 				setIsReady(true);
@@ -194,7 +197,7 @@ useEffect(() => {
 			setQualities(q);
 			setCurrentQuality(directStreams[0].quality);
 
-			let proxyUrl = getProxyUrl(directStreams[0].url, directStreams[0].referer, false);
+			let proxyUrl = getProxyUrl(directStreams[0], false);
 			video.src = proxyUrl;
 			setIsReady(true);
 		} else if (embedStreams.length > 0) {
