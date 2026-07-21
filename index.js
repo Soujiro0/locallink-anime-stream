@@ -46,6 +46,16 @@ app.use((req, res) => {
   res.sendFile(path.join(__dirname, "client", "dist", "index.html"));
 });
 
+// Handle Docker graceful shutdown signals
+process.on('SIGTERM', () => {
+  console.log('\n🛑 SIGTERM received. Shutting down gracefully...');
+  process.exit(0);
+});
+process.on('SIGINT', () => {
+  console.log('\n🛑 SIGINT received. Shutting down gracefully...');
+  process.exit(0);
+});
+
 // Start server only when run directly (not imported for testing)
 if (require.main === module) {
   const readline = require("readline");
