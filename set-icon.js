@@ -17,7 +17,7 @@ async function stampIcon() {
   }
 
   try {
-    console.log('🎨 Stamping LocalLink icon onto Windows executable using resedit...');
+    console.log('🎨 Stamping LocalLink icon onto Windows executable using resedit');
     const icoBuf = fs.readFileSync(icoPath);
     const icoFile = resedit.Data.IconFile.from(icoBuf);
 
