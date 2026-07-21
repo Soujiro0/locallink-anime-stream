@@ -82,6 +82,27 @@ describe("tokenSigner and Legitimate IP-Bound Security Engine", () => {
     expect(tokenSigner.extractClientIp(mockReqXff)).toBe("203.0.113.15");
   });
 
+  test("extractClientIp normalizes IPv4-mapped IPv6 addresses to prevent HMAC mismatch", () => {
+    // When Express is behind nginx in Docker, the same client may appear as:
+    //   - "192.168.1.100" (from X-Forwarded-For)
+    //   - "::ffff:192.168.1.100" (from req.ip / socket.remoteAddress)
+    // Without normalization, tokens signed with one form fail to verify with the other.
+    const mockReqIpv6Mapped = { headers: {}, ip: "::ffff:192.168.1.100" };
+    expect(tokenSigner.extractClientIp(mockReqIpv6Mapped)).toBe("192.168.1.100");
+
+    // Verify token interoperability: sign with normalized IP, verify with normalized IP
+    const normalizedIp = tokenSigner.extractClientIp(mockReqIpv6Mapped);
+    const token = tokenSigner.generateStreamToken({ streamId, clientIp: normalizedIp, expiresInSeconds: 600, secret });
+    const verification = tokenSigner.verifyStreamToken({
+      sig: token.sig,
+      streamId,
+      clientIp: normalizedIp,
+      exp: token.exp,
+      secret
+    });
+    expect(verification.valid).toBe(true);
+  });
+
   test("whitelist config integrates IP-bound token validation seamlessly", () => {
     const url = "https://locallink.stream/streams/anime_101/playlist.m3u8";
     const generatedSig = whitelist.generateWhitelistToken(url, clientIp, 3600);

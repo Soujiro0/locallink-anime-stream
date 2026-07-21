@@ -1,11 +1,29 @@
-require("dotenv").config();
-const express = require("express");
+const fs = require("fs");
 const path = require("path");
+
+// When running inside a pkg executable, process.cwd() might not be where the .exe is.
+// We should explicitly load .env from the directory containing the executable.
+const isPkg = typeof process.pkg !== "undefined";
+const envPath = isPkg
+  ? path.join(path.dirname(process.execPath), ".env")
+  : path.resolve(process.cwd(), ".env");
+
+if (fs.existsSync(envPath)) {
+  require("dotenv").config({ path: envPath });
+} else {
+  require("dotenv").config();
+}
+const express = require("express");
 const apiRoutes = require("./src/routes/apiRoutes");
 const proxyController = require("./src/controllers/proxyController");
 
 const app = express();
 app.disable("x-powered-by");
+
+// Trust first proxy (nginx) so req.ip resolves to real client IP from X-Forwarded-For/X-Real-IP
+// Without this, Express behind Docker nginx uses the container-internal IP for token signing,
+// causing HMAC mismatch when verifying proxy requests from the same client.
+app.set("trust proxy", 1);
 
 // Serve production build if exists with static asset caching
 app.use(express.static(path.join(__dirname, "client", "dist"), {

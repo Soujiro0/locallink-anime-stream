@@ -135,11 +135,14 @@ async function nativeStreamFetch(targetUrl, headers = {}, signal = null, method 
   let targetHost = "";
   try { targetHost = new URL(targetUrl).hostname; } catch (e) {}
 
+  // Track the initial fetch response so CycleTLS catch block can return it as fallback
+  let initialFetchResponse = null;
+
   // Only try standard undici fetch first if it's NOT a known strict CDN host
   if (!targetHost || !isStrictCdnHost(targetHost)) {
-    let res = await fetch(targetUrl, { headers: mergedHeaders, signal, method }).catch(() => null);
-    if (res && res.status !== 403 && res.status !== 503) {
-      return res;
+    initialFetchResponse = await fetch(targetUrl, { headers: mergedHeaders, signal, method }).catch(() => null);
+    if (initialFetchResponse && initialFetchResponse.status !== 403 && initialFetchResponse.status !== 503) {
+      return initialFetchResponse;
     }
   }
 
@@ -148,6 +151,14 @@ async function nativeStreamFetch(targetUrl, headers = {}, signal = null, method 
   // If 403 or network error due to TLS fingerprinting, use CycleTLS
   try {
     const client = await getCycleTLS();
+
+    // If CycleTLS is unavailable (pkg binary or init failure), fall back to standard fetch
+    if (!client) {
+      if (initialFetchResponse) return initialFetchResponse;
+      // Last resort: try standard fetch even for strict CDN hosts
+      return await fetch(targetUrl, { headers: mergedHeaders, signal, method });
+    }
+
     const fetchPromise = client(
       targetUrl,
       {
@@ -219,7 +230,7 @@ async function nativeStreamFetch(targetUrl, headers = {}, signal = null, method 
     };
   } catch (err) {
     console.error(`[PROXY] CycleTLS fallback failed for ${targetUrl}:`, err.message);
-    if (res) return res;
+    if (initialFetchResponse) return initialFetchResponse;
     throw err;
   }
 }
@@ -271,7 +282,11 @@ exports.proxy = async (req, res) => {
 
     const tokenParam = req.query.token || req.query.wl_token || req.query.sig;
     const clientIp = tokenSigner.extractClientIp(req);
-    const isTrustedToken = whitelist.isWhitelistedToken(tokenParam, targetUrl, req.query.exp ? clientIp : null, req.query.exp);
+    
+    // In pkg builds, the proxy is local and not exposed to the internet.
+    // We can safely trust all requests and bypass token validation.
+    const isPkg = typeof process.pkg !== "undefined";
+    const isTrustedToken = isPkg || whitelist.isWhitelistedToken(tokenParam, targetUrl, req.query.exp ? clientIp : null, req.query.exp);
 
     let customReferer = req.query.referer;
     customReferer = resolveRefererForUrl(targetUrl, customReferer);

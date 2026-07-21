@@ -5,23 +5,42 @@ const DEFAULT_SECRET = process.env.STREAM_WHITELIST_SECRET || "locallink-secure-
 /**
  * Extract verified client IP address from request headers or socket.
  * Prioritizes Cloudflare CF-Connecting-IP and standard proxies when operating behind owned infrastructure.
+ * Normalizes IPv4-mapped IPv6 addresses (::ffff:x.x.x.x → x.x.x.x) to prevent HMAC mismatches
+ * when the same client appears with different IP representations across requests.
  */
 function extractClientIp(req) {
   if (!req) return "127.0.0.1";
   
-  const cfIp = req.headers["cf-connecting-ip"];
-  if (cfIp && typeof cfIp === "string") return cfIp.trim();
+  let ip;
 
-  const forwardedFor = req.headers["x-forwarded-for"];
-  if (forwardedFor && typeof forwardedFor === "string") {
-    const firstIp = forwardedFor.split(",")[0].trim();
-    if (firstIp) return firstIp;
+  const cfIp = req.headers["cf-connecting-ip"];
+  if (cfIp && typeof cfIp === "string") {
+    ip = cfIp.trim();
+  } else {
+    const forwardedFor = req.headers["x-forwarded-for"];
+    if (forwardedFor && typeof forwardedFor === "string") {
+      const firstIp = forwardedFor.split(",")[0].trim();
+      if (firstIp) ip = firstIp;
+    }
+
+    if (!ip) {
+      const realIp = req.headers["x-real-ip"];
+      if (realIp && typeof realIp === "string") ip = realIp.trim();
+    }
+
+    if (!ip) {
+      ip = req.ip || req.connection?.remoteAddress || req.socket?.remoteAddress || "127.0.0.1";
+    }
   }
 
-  const realIp = req.headers["x-real-ip"];
-  if (realIp && typeof realIp === "string") return realIp.trim();
+  // Normalize IPv4-mapped IPv6 addresses (::ffff:192.168.1.1 → 192.168.1.1)
+  // This prevents HMAC token mismatches when Express/nginx report the same client
+  // with different IPv4/IPv6 representations across different request phases.
+  if (ip && ip.startsWith("::ffff:")) {
+    ip = ip.slice(7);
+  }
 
-  return req.ip || req.connection?.remoteAddress || req.socket?.remoteAddress || "127.0.0.1";
+  return ip || "127.0.0.1";
 }
 
 /**
