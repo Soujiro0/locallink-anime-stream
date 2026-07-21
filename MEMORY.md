@@ -43,3 +43,7 @@ In this session, we upgraded the **LocalLink Anime Stream** web application and 
 - **Always-Mounted Video Element Fix**: Resolved an issue where selecting another episode while watching an embed stream failed because unmounting `<video>` caused `useEffect` to exit early (`if (!video) return;`). Kept `<video ref={videoRef}>` mounted at all times (hidden via CSS when activeEmbed is set) and placed `setActiveEmbed(null)` at the start of stream processing so switching episodes works immediately.
 - **Removed Root Documentation Artifacts**: Consolidated and removed `REPORT.md` and `CLOUDFLARE_TOKEN_WHITELIST.md` into this living document per user specification.
 
+### 8. Docker KIWI & Standalone Executable Configuration (`v1.2.4`)
+- **Docker Nginx Header & Express IP Parity**: Added `app.set("trust proxy", 1)` to Express and mapped `X-Forwarded-For` IPs to fix a silent HMAC validation mismatch behind the Nginx reverse proxy.
+- **Docker Range Header Forwarding**: Passed `Range` and `If-Range` headers in `nginx.conf` to allow seeking and byte-range streaming for KIWI provider HLS streams.
+- **CycleTLS Extraction inside `.exe`**: Fixed a bug where `pkg` desktop builds returned 403 Cloudflare blocks. Instead of bypassing security, dynamically extracted `cycletls` native binaries from `pkg`'s virtual filesystem to the host's `%TEMP%` directory, passing `executablePath` to run it natively without errors.

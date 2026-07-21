@@ -41,27 +41,29 @@ async function safeTokenFetch(url, headers, method = "GET", body = null) {
   if (process.env.NODE_ENV !== "test" && !process.env.VITEST) {
     try {
       const client = await getCycleTLS();
-      const cyOpts = {
-        timeout: 4,
-        ja3: "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,0-23-65281-10-11-35-16-5-13-18-51-45-43-27-17513,29-23-24,0",
-        userAgent: headers["User-Agent"] || HEADERS["User-Agent"],
-        headers,
-        responseType: "text",
-      };
-      if (body) cyOpts.body = body;
-      const resp = await client(url, cyOpts, method.toLowerCase());
-      const resHeaders = new Map();
-      if (resp.headers) {
-        Object.entries(resp.headers).forEach(([k, v]) => resHeaders.set(k.toLowerCase(), Array.isArray(v) ? v.join("; ") : String(v)));
+      if (client) {
+        const cyOpts = {
+          timeout: 4,
+          ja3: "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,0-23-65281-10-11-35-16-5-13-18-51-45-43-27-17513,29-23-24,0",
+          userAgent: headers["User-Agent"] || HEADERS["User-Agent"],
+          headers,
+          responseType: "text",
+        };
+        if (body) cyOpts.body = body;
+        const resp = await client(url, cyOpts, method.toLowerCase());
+        const resHeaders = new Map();
+        if (resp.headers) {
+          Object.entries(resp.headers).forEach(([k, v]) => resHeaders.set(k.toLowerCase(), Array.isArray(v) ? v.join("; ") : String(v)));
+        }
+        return {
+          url: resp.finalUrl || url,
+          text: resp.data ? resp.data.toString("utf-8") : "",
+          headers: { 
+            get: (k) => resHeaders.get(k.toLowerCase()) || null,
+            getSetCookie: () => resp.headers && resp.headers["set-cookie"] ? (Array.isArray(resp.headers["set-cookie"]) ? resp.headers["set-cookie"] : [resp.headers["set-cookie"]]) : [],
+          },
+        };
       }
-      return {
-        url: resp.finalUrl || url,
-        text: resp.data ? resp.data.toString("utf-8") : "",
-        headers: { 
-          get: (k) => resHeaders.get(k.toLowerCase()) || null,
-          getSetCookie: () => resp.headers && resp.headers["set-cookie"] ? (Array.isArray(resp.headers["set-cookie"]) ? resp.headers["set-cookie"] : [resp.headers["set-cookie"]]) : [],
-        },
-      };
     } catch (e) {}
   }
 
@@ -250,7 +252,8 @@ async function enrichStreamResponse(data, provider, req, res) {
   }
 
   // Attach legitimate native IP-bound tokens and HLS session cookie
-  if (req && listToResolve && listToResolve.length > 0) {
+  // In pkg builds, this is disabled as the proxy runs locally and is not exposed to the internet.
+  if (req && listToResolve && listToResolve.length > 0 && typeof process.pkg === "undefined") {
     try {
       const clientIp = tokenSigner.extractClientIp(req);
       const primaryUrl = listToResolve[0]?.url || "locallink_stream";

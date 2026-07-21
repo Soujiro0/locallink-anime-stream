@@ -38,14 +38,62 @@ function encodePipeRequest(payload) {
 }
 
 let cycleTLSInstance = null;
+let cycleTLSFailed = false;
+
+// Detect if running inside a pkg-bundled executable
+// pkg sets process.pkg when code runs from its virtual filesystem
+const isPkg = typeof process.pkg !== "undefined";
 
 async function getCycleTLS() {
+  // If CycleTLS previously failed to initialize, don't retry (avoids repeated crash attempts)
+  if (cycleTLSFailed) return null;
+
   if (!cycleTLSInstance) {
-    if (process.platform !== "win32") {
-      try {
-        const fs = require("fs");
-        const path = require("path");
-        const distDir = path.join(path.dirname(require.resolve("cycletls/package.json")), "dist");
+    let executablePath = undefined;
+    const fs = require("fs");
+    const path = require("path");
+    
+    try {
+      const distDir = path.join(path.dirname(require.resolve("cycletls/package.json")), "dist");
+
+      if (isPkg) {
+        const os = require("os");
+        const PLATFORM_BINARIES = {
+          "win32": { "x64": "index.exe" },
+          "linux": { "arm": "index-arm", "arm64": "index-arm64", "x64": "index" },
+          "darwin": { "x64": "index-mac", "arm": "index-mac-arm", "arm64": "index-mac-arm64" },
+          "freebsd": { "x64": "index-freebsd" }
+        };
+        const arch = os.arch();
+        const executableFilename = PLATFORM_BINARIES[process.platform] && PLATFORM_BINARIES[process.platform][arch];
+        
+        if (executableFilename) {
+          const sourcePath = path.join(distDir, executableFilename);
+          if (fs.existsSync(sourcePath)) {
+            const targetDir = path.join(os.tmpdir(), "locallink-cycletls");
+            if (!fs.existsSync(targetDir)) {
+              fs.mkdirSync(targetDir, { recursive: true });
+            }
+            const targetPath = path.join(targetDir, executableFilename);
+            
+            let needsCopy = true;
+            if (fs.existsSync(targetPath)) {
+              try {
+                const srcStat = fs.statSync(sourcePath);
+                const tgtStat = fs.statSync(targetPath);
+                if (srcStat.size === tgtStat.size) needsCopy = false;
+              } catch (e) {}
+            }
+            if (needsCopy) {
+              fs.copyFileSync(sourcePath, targetPath);
+              if (process.platform !== "win32") {
+                try { fs.chmodSync(targetPath, 0o755); } catch (e) {}
+              }
+            }
+            executablePath = targetPath;
+          }
+        }
+      } else if (process.platform !== "win32") {
         if (fs.existsSync(distDir)) {
           fs.readdirSync(distDir).forEach((f) => {
             if (!f.endsWith(".js") && !f.endsWith(".ts") && !f.endsWith(".map") && !f.endsWith(".json")) {
@@ -53,10 +101,20 @@ async function getCycleTLS() {
             }
           });
         }
-      } catch (e) {}
+      }
+    } catch (e) {
+      console.warn("[CycleTLS] Failed during binary extraction/permission setup:", e.message);
     }
-    const initCycleTLS = require("cycletls");
-    cycleTLSInstance = await initCycleTLS();
+
+    try {
+      const initCycleTLS = require("cycletls");
+      cycleTLSInstance = await initCycleTLS({ executablePath });
+    } catch (err) {
+      console.warn("[CycleTLS] Failed to initialize (likely missing native binary):", err.message);
+      console.warn("[CycleTLS] Falling back to standard fetch for all requests.");
+      cycleTLSFailed = true;
+      return null;
+    }
   }
   return cycleTLSInstance;
 }
@@ -74,23 +132,25 @@ async function fetchUpstreamPipe(encodedReq, headers = {}) {
   if (process.env.NODE_ENV !== "test" && !process.env.VITEST) {
     try {
       const client = await getCycleTLS();
-      const resp = await client(
-        targetUrl,
-        {
-          timeout: 8,
-          ja3: "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,0-23-65281-10-11-35-16-5-13-18-51-45-43-27-17513,29-23-24,0",
-          userAgent: customHeaders["User-Agent"] || HEADERS["User-Agent"],
-          headers: customHeaders,
-          responseType: "text",
-        },
-        "get"
-      );
-      if (resp.status < 500) {
-        return {
-          ok: resp.status >= 200 && resp.status < 300,
-          status: resp.status,
-          text: async () => (resp.data ? resp.data.toString("utf-8") : ""),
-        };
+      if (client) {
+        const resp = await client(
+          targetUrl,
+          {
+            timeout: 8,
+            ja3: "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,0-23-65281-10-11-35-16-5-13-18-51-45-43-27-17513,29-23-24,0",
+            userAgent: customHeaders["User-Agent"] || HEADERS["User-Agent"],
+            headers: customHeaders,
+            responseType: "text",
+          },
+          "get"
+        );
+        if (resp.status < 500) {
+          return {
+            ok: resp.status >= 200 && resp.status < 300,
+            status: resp.status,
+            text: async () => (resp.data ? resp.data.toString("utf-8") : ""),
+          };
+        }
       }
     } catch (err) {
       console.error("CycleTLS failed, falling back to standard fetch:", err.message);

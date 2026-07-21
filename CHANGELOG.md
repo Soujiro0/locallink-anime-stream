@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.4] (2026-07-22)
+
+### Fixed
+- **Cloudflare 403 in PKG Builds**: Safely extracted the `cycletls` native binary into the host OS temporary directory (`%TEMP%`) during `pkg` runtime, enabling native TLS fingerprinting to bypass Cloudflare WAF without requiring manual `.env` `cf_clearance` cookies in desktop builds.
+- **Docker KIWI Playback Fixes**: 
+  - Added `app.set("trust proxy", 1)` to Express so `X-Forwarded-For` IPs are parsed correctly behind Nginx, fixing IP mismatch in HMAC token verification.
+  - Standardized IPv4-mapped IPv6 extraction (`::ffff:x.x.x.x` → `x.x.x.x`) across `tokenSigner.js` to ensure consistent HMAC signatures.
+  - Added `proxy_set_header Range` and `proxy_set_header If-Range` in `nginx.conf` to fix HLS byte-range skipping on KIWI provider streams.
+
 ## [1.2.3] (2026-07-02)
 
 ### Fixed
