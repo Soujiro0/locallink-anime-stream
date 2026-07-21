@@ -282,7 +282,7 @@ exports.proxy = async (req, res) => {
 
     const tokenParam = req.query.token || req.query.wl_token || req.query.sig;
     const clientIp = tokenSigner.extractClientIp(req);
-    
+
     // In pkg builds, or when explicitly set to private mode, the proxy is local and not exposed to the internet.
     // We can safely trust all requests and bypass token validation.
     const isPublic = typeof process.pkg === "undefined" && process.env.PRIVATE_MODE !== "true";
