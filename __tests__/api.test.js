@@ -73,6 +73,15 @@ beforeEach(() => {
   setupMockResponses();
 });
 
+describe("System Routes", () => {
+  it("GET /api/version should return app version", async () => {
+    const res = await request(app).get("/api/version");
+    expect(res.status).toBe(200);
+    expect(res.body.version).toBeDefined();
+    expect(typeof res.body.version).toBe("string");
+  });
+});
+
 describe("Search & Discovery Routes", () => {
   it("GET /api/search should execute search query", async () => {
     const res = await request(app).get("/api/search?query=naruto");

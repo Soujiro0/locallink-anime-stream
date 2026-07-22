@@ -14,6 +14,7 @@ if (fs.existsSync(envPath)) {
   require("dotenv").config();
 }
 const express = require("express");
+const { version } = require("./package.json");
 const apiRoutes = require("./src/routes/apiRoutes");
 const proxyController = require("./src/controllers/proxyController");
 
@@ -83,7 +84,7 @@ if (require.main === module) {
 
   if (process.env.NO_PROMPT === "true") {
     const server = app.listen(defaultPort, "0.0.0.0", () => {
-      console.log(`\n✅ Server successfully started on port ${defaultPort} (Non-interactive mode)`);
+      console.log(`\n✅ Server v${version} successfully started on port ${defaultPort} (Non-interactive mode)`);
     });
     server.on("error", (err) => {
       if (err.code === "EADDRINUSE") {
@@ -103,7 +104,7 @@ if (require.main === module) {
     });
 
     console.log("==========================================");
-    console.log(" Welcome to LocalLink Server! ");
+    console.log(` Welcome to LocalLink Server v${version}! `);
     console.log("==========================================");
     console.log("Please specify the port to run the server on.");
     console.log("Valid ports are generally between 1024 and 65535.");
@@ -128,7 +129,7 @@ if (require.main === module) {
         }
 
         const server = app.listen(port, () => {
-          console.log("\n✅ Server successfully started!");
+          console.log(`\n✅ Server v${version} successfully started!`);
           console.log("==========================================");
           console.log("To access the platform, open your browser to:");
           console.log(`➔  http://localhost:${port}`);
