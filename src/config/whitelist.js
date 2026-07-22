@@ -83,7 +83,7 @@ function generateWhitelistToken(targetUrl, clientIp = null, expiresInSeconds = 3
 /**
  * Attach whitelisted Cloudflare clearance cookies or internal authentication signatures
  */
-function attachWhitelistedCloudflareState(headers, targetUrl) {
+function attachWhitelistedCloudflareState(headers, targetUrl, req = null) {
   try {
     const hostname = new URL(targetUrl).hostname.toLowerCase();
     // 1. Check custom authorization header injection if present (for owned zone bypass)
@@ -91,15 +91,24 @@ function attachWhitelistedCloudflareState(headers, targetUrl) {
       headers["X-LocalLink-Auth"] = process.env.CF_BYPASS_SECRET;
     }
 
-    // 2. Attach first-party cf_clearance session if explicitly set in environment
+    // 2. Attach first-party cf_clearance session if explicitly set in environment or request
     if (hostname.includes("miruro.tv")) {
-      const clearance = process.env.CF_CLEARANCE_MIRURO || process.env.CF_CLEARANCE;
-      if (clearance) {
-        if (process.env.CF_USER_AGENT) headers["User-Agent"] = process.env.CF_USER_AGENT;
-        let cookieVal = clearance.trim();
-        if (!cookieVal.includes("=")) cookieVal = `cf_clearance=${cookieVal}`;
-        const existingCookie = headers["Cookie"] ? headers["Cookie"] + "; " : "";
-        headers["Cookie"] = existingCookie + cookieVal;
+      const rawClearance = req?.headers?.["x-cf-clearance"] || 
+                           process.env.CF_CLEARANCE_MIRURO || 
+                           process.env.CF_CLEARANCE;
+      if (rawClearance) {
+        let clean = rawClearance.trim().replace(/^["']+|["']+$|\r|\n/g, "").trim();
+        if (clean.toLowerCase().startsWith("cf_clearance=")) clean = clean.slice(13).trim().replace(/^["']+|["']+$|\r|\n/g, "");
+        if (clean) {
+          const cookieVal = `cf_clearance=${clean}`;
+          const existingCookie = headers["Cookie"] ? headers["Cookie"] + "; " : "";
+          headers["Cookie"] = existingCookie + cookieVal;
+        }
+      }
+
+      const rawUserAgent = req?.headers?.["x-cf-user-agent"] || process.env.CF_USER_AGENT;
+      if (rawUserAgent) {
+        headers["User-Agent"] = rawUserAgent.trim().replace(/^["']+|["']+$|\r|\n/g, "");
       }
     }
   } catch (e) {}

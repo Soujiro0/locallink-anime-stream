@@ -23,3 +23,6 @@ services:
         sync: false
       - key: CF_USER_AGENT
         sync: false
+      - key: FLARESOLVERR_URL
+        sync: false
+

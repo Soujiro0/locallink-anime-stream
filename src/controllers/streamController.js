@@ -4,15 +4,20 @@ const { HEADERS, MIRURO_PIPE_URL, encodePipeRequest, decodePipeResponse, fetchUp
 const tokenSigner = require("../utils/tokenSigner");
 const whitelist = require("../config/whitelist");
 
-function getPipeHeaders() {
+function getPipeHeaders(req = null) {
   const headers = { ...HEADERS };
-  whitelist.attachWhitelistedCloudflareState(headers, MIRURO_PIPE_URL);
+  whitelist.attachWhitelistedCloudflareState(headers, MIRURO_PIPE_URL, req);
   return headers;
 }
 
-function handlePipeError(res) {
+function handlePipeError(res, req = null) {
   if (res.status === 403 || res.status === 503) {
-    throw new Error(`Pipe request blocked by upstream Cloudflare (HTTP ${res.status}). To bypass, copy your cf_clearance cookie from your browser when visiting miruro.tv and add CF_CLEARANCE_MIRURO="cf_clearance=..." to your .env file.`);
+    const isCloud = process.env.RENDER || process.env.NODE_ENV === "production";
+    let extraMsg = "";
+    if (isCloud) {
+      extraMsg = " Note: On cloud deployments (Render/Docker), Cloudflare clearance cookies are bound to the client IP address. To fix this on cloud servers, pass X-CF-Clearance and X-CF-User-Agent request headers or configure FLARESOLVERR_URL in environment variables.";
+    }
+    throw new Error(`Pipe request blocked by upstream Cloudflare (HTTP ${res.status}).${extraMsg} For local mode, copy your cf_clearance cookie from your browser when visiting miruro.tv and add CF_CLEARANCE_MIRURO="cf_clearance=..." to your .env file.`);
   }
   throw new Error(`Pipe request failed with status ${res.status}`);
 }
@@ -315,7 +320,7 @@ function injectSourceSlugs(data, anilistId) {
   return data;
 }
 
-async function fetchRawEpisodes(anilistId) {
+async function fetchRawEpisodes(anilistId, req = null) {
   const cacheKey = `episodes_${anilistId}`;
   const cachedData = serverCache.get(cacheKey);
   if (cachedData) {
@@ -332,8 +337,8 @@ async function fetchRawEpisodes(anilistId) {
   };
   const encodedReq = encodePipeRequest(payload);
 
-  const response = await fetchUpstreamPipe(encodedReq, getPipeHeaders());
-  if (!response.ok) handlePipeError(response);
+  const response = await fetchUpstreamPipe(encodedReq, getPipeHeaders(req), req);
+  if (!response.ok) handlePipeError(response, req);
 
   const text = (await response.text()).trim();
   const data = await decodePipeResponse(text);
@@ -346,7 +351,7 @@ async function fetchRawEpisodes(anilistId) {
 exports.episodes = async (req, res) => {
   try {
     const anilistId = parseInt(req.params.anilist_id);
-    const data = await fetchRawEpisodes(anilistId);
+    const data = await fetchRawEpisodes(anilistId, req);
     res.json(injectSourceSlugs(data, anilistId));
   } catch (err) {
     res.status(500).json({ detail: err.message });
@@ -403,8 +408,8 @@ exports.sources = async (req, res) => {
     };
     const encodedReq = encodePipeRequest(payload);
 
-    const response = await fetchUpstreamPipe(encodedReq, getPipeHeaders());
-    if (!response.ok) handlePipeError(response);
+    const response = await fetchUpstreamPipe(encodedReq, getPipeHeaders(req), req);
+    if (!response.ok) handlePipeError(response, req);
 
     const text = (await response.text()).trim();
     const data = await decodePipeResponse(text);
@@ -420,7 +425,7 @@ exports.watch = async (req, res) => {
     const { provider, anilist_id, category, slug } = req.params;
     const anilistIdInt = parseInt(anilist_id);
 
-    const data = await fetchRawEpisodes(anilistIdInt);
+    const data = await fetchRawEpisodes(anilistIdInt, req);
     const provData = data.providers?.[provider] || {};
     const epList = provData.episodes?.[category] || [];
 
@@ -452,8 +457,8 @@ exports.watch = async (req, res) => {
     };
     const encodedReq = encodePipeRequest(payload);
 
-    const response = await fetchUpstreamPipe(encodedReq, getPipeHeaders());
-    if (!response.ok) handlePipeError(response);
+    const response = await fetchUpstreamPipe(encodedReq, getPipeHeaders(req), req);
+    if (!response.ok) handlePipeError(response, req);
 
     const text = (await response.text()).trim();
     const finalData = await decodePipeResponse(text);

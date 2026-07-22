@@ -119,14 +119,77 @@ async function getCycleTLS() {
   return cycleTLSInstance;
 }
 
-async function fetchUpstreamPipe(encodedReq, headers = {}) {
+function sanitizeClearance(val) {
+  if (!val) return null;
+  let clean = val.trim();
+  // Strip surrounding quotes (double or single)
+  clean = clean.replace(/^["']+|["']+$|\r|\n/g, "").trim();
+  // Strip leading cookie name if repeated or formatted as key=value
+  if (clean.toLowerCase().startsWith("cf_clearance=")) {
+    clean = clean.slice(13).trim();
+  }
+  // Strip quotes again if wrapped inside value
+  clean = clean.replace(/^["']+|["']+$|\r|\n/g, "").trim();
+  return clean ? `cf_clearance=${clean}` : null;
+}
+
+function getHarvestedHeaders(req = null) {
+  const headers = {};
+  
+  const rawClearance = req?.headers?.["x-cf-clearance"] || 
+                       process.env.CF_CLEARANCE_MIRURO || 
+                       process.env.CF_CLEARANCE;
+                       
+  const sanitizedCookie = sanitizeClearance(rawClearance);
+  if (sanitizedCookie) {
+    headers["Cookie"] = sanitizedCookie;
+  }
+
+  const rawUserAgent = req?.headers?.["x-cf-user-agent"] || process.env.CF_USER_AGENT;
+  if (rawUserAgent) {
+    headers["User-Agent"] = rawUserAgent.trim().replace(/^["']+|["']+$|\r|\n/g, "");
+  }
+
+  return headers;
+}
+
+async function fetchUpstreamPipe(encodedReq, headers = {}, req = null) {
   let pipeUrl = process.env.MIRURO_PIPE_URL || "https://www.miruro.tv/api/secure/pipe";
   if (pipeUrl.includes("8191") || pipeUrl.endsWith("/v1")) {
     pipeUrl = "https://www.miruro.tv/api/secure/pipe";
   }
 
-  let customHeaders = { ...HEADERS, ...getHarvestedHeaders(), ...headers };
+  let customHeaders = { ...HEADERS, ...getHarvestedHeaders(req), ...headers };
   let targetUrl = `${pipeUrl}?e=${encodedReq}`;
+
+  // Optional FlareSolverr integration for cloud environments (Render, Docker, etc.)
+  if (process.env.FLARESOLVERR_URL) {
+    try {
+      const solverUrl = process.env.FLARESOLVERR_URL.replace(/\/+$/, "") + "/v1";
+      const fsRes = await fetch(solverUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cmd: "request.get",
+          url: targetUrl,
+          maxTimeout: 15000,
+          headers: customHeaders
+        })
+      });
+      if (fsRes.ok) {
+        const fsData = await fsRes.json();
+        if (fsData.status === "ok" && fsData.solution) {
+          return {
+            ok: fsData.solution.status >= 200 && fsData.solution.status < 300,
+            status: fsData.solution.status,
+            text: async () => fsData.solution.response || "",
+          };
+        }
+      }
+    } catch (fsErr) {
+      console.warn("[FlareSolverr] Proxy request failed, falling back:", fsErr.message);
+    }
+  }
 
   // Use CycleTLS to perform native TLS JA3 impersonation outside of test environments
   if (process.env.NODE_ENV !== "test" && !process.env.VITEST) {
@@ -162,20 +225,6 @@ async function fetchUpstreamPipe(encodedReq, headers = {}) {
   return fetch(targetUrl, { headers: customHeaders, signal: controller.signal }).finally(() => clearTimeout(timeoutId));
 }
 
-function getHarvestedHeaders() {
-  const headers = {};
-  const clearance = process.env.CF_CLEARANCE_MIRURO || process.env.CF_CLEARANCE;
-  if (clearance) {
-    let cookieVal = clearance.trim();
-    if (!cookieVal.includes("=")) cookieVal = `cf_clearance=${cookieVal}`;
-    headers["Cookie"] = cookieVal;
-  }
-  if (process.env.CF_USER_AGENT) {
-    headers["User-Agent"] = process.env.CF_USER_AGENT;
-  }
-  return headers;
-}
-
 module.exports = {
   HEADERS,
   MIRURO_PIPE_URL,
@@ -184,4 +233,5 @@ module.exports = {
   fetchUpstreamPipe,
   getCycleTLS,
   getHarvestedHeaders,
+  sanitizeClearance,
 };
