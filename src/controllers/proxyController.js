@@ -277,10 +277,27 @@ exports.proxy = async (req, res) => {
       return res.status(204).end();
     }
 
-    const targetUrl = req.query.url;
+    let targetUrl = req.query.url;
     if (!targetUrl) return res.status(400).send("No url provided");
 
-    const tokenParam = req.query.token || req.query.wl_token || req.query.sig;
+    // Reconstruct the CDN query parameters that were passed in the proxy query string.
+    // The CDN tokens were stripped from targetUrl when rewriting the master playlist because they were appended to the proxy URL instead.
+    try {
+      const u = new URL(targetUrl);
+      const cdnKeys = ["token", "expires", "cf_ray", "h", "key", "auth"];
+      let modified = false;
+      for (const key of cdnKeys) {
+        if (req.query[key] && !u.searchParams.has(key)) {
+          u.searchParams.set(key, req.query[key]);
+          modified = true;
+        }
+      }
+      if (modified) {
+        targetUrl = u.href;
+      }
+    } catch (e) {}
+
+    const tokenParam = req.query.sig || req.query.wl_token || req.query.token;
     const clientIp = tokenSigner.extractClientIp(req);
 
     // In pkg builds, or when explicitly set to private mode, the proxy is local and not exposed to the internet.
@@ -382,6 +399,13 @@ exports.proxy = async (req, res) => {
 
       const cookieParam = cachedCookie ? "&cookie=" + encodeURIComponent(cachedCookie) : "";
       const tokenParams = whitelist.extractTokenParams(targetUrl);
+      
+      // Also extract CDN tokens that were carried over in the proxy's query string (req.query)
+      const queryTokenParams = whitelist.extractTokenParams(`http://localhost${req.url}`);
+      queryTokenParams.forEach((val, key) => {
+        if (!tokenParams.has(key)) tokenParams.set(key, val);
+      });
+
       // Append the proxy's HMAC signature and expiration so chunks can bypass the proxy auth
       if (req.query.sig) tokenParams.set("sig", req.query.sig);
       if (req.query.exp) tokenParams.set("exp", req.query.exp);

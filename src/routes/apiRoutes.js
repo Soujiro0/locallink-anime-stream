@@ -1,10 +1,14 @@
 const express = require("express");
 const router = express.Router();
+const { version } = require("../../package.json");
 
 const discoveryController = require("../controllers/discoveryController");
 const collectionController = require("../controllers/collectionController");
 const animeController = require("../controllers/animeController");
 const streamController = require("../controllers/streamController");
+
+// System Routes
+router.get("/version", (req, res) => res.json({ version }));
 
 // Discovery & Search Routes
 router.get("/cache-stats", discoveryController.getCacheStats);
